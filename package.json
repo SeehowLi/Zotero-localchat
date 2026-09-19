@@ -1,6 +1,6 @@
 {
   "name": "zotero-localchat",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Zotero sidebar for an existing local ChatGPT desktop session",
   "license": "MIT",

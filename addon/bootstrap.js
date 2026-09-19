@@ -10,7 +10,8 @@ async function startup({rootURI}){
     if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!/^#[a-f0-9]{64}$/.test(url.hash)||url.username||url.password)throw Error('本机聊天地址无效。');return url;
   };
   Mirror.paper=item=>{while(item?.parentID)item=Zotero.Items.get(item.parentID);return item?.key&&!item.isNote()?{key:item.libraryID+':'+item.key,title:item.getField('title')||'Untitled paper',item}:null;};
-  Mirror.open=async(p,mode='paper',excerpt='')=>{
+  Mirror.open=async(p,...args)=>{while(p.opening)await p.opening.catch(()=>{});const job=Mirror.load(p,...args);p.opening=job;try{return await job;}finally{if(p.opening===job)p.opening=null;}};
+  Mirror.load=async(p,mode='paper',excerpt='')=>{
     try{
       const url=await Mirror.endpoint();if(p.endpoint!==url.href){p.context=null;p.endpoint=url.href;}let pdfPath;
       if(mode==='paper'){
@@ -32,7 +33,7 @@ async function startup({rootURI}){
         browser.style.cssText='flex:1;min-width:0;height:100%;border:0';p.view.append(browser);p.browser=browser;await Zotero.Promise.delay(80);
       }
       p.view.hidden=false;
-      const href=url.origin+'/?context='+p.context+'&view='+Date.now()+url.hash;
+      const href=url.origin+'/?context='+p.context+url.hash;
       if(p.browser.currentURI?.spec!==href)p.browser.loadURI(Services.io.newURI(href),{triggeringPrincipal:Services.scriptSecurityManager.getSystemPrincipal()});
       p.status.textContent=mode==='paper'?'当前论文：'+p.paper.title+'。首次提问才上传 PDF。':'空白聊天，不附带 PDF。';
     }catch(e){p.status.textContent='无法打开：'+e.message+'（本地服务需先启动）';Zotero.logError(e);throw e;}

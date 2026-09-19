@@ -3,8 +3,8 @@
     "paper-chat-mirror@local.zotero": {
       "updates": [
         {
-          "version": "0.4.1",
-          "update_link": "https://github.com/SeehowLi/Zotero-localchat/releases/download/v0.4.1/Zotero-localchat-0.4.1.xpi",
+          "version": "0.4.2",
+          "update_link": "https://github.com/SeehowLi/Zotero-localchat/releases/download/v0.4.2/Zotero-localchat-0.4.2.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "10.0",
