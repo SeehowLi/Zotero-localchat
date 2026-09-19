@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero-localchat",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "通过本机事件桥在阅读侧栏流式使用现有 ChatGPT App。",
   "applications": {
     "zotero": {

@@ -1,4 +1,4 @@
-$ErrorActionPreference='Stop'
+﻿$ErrorActionPreference='Stop'
 $package=Get-AppxPackage | Where-Object { $_.Name -match '^OpenAI\.(Codex|ChatGPT)' } | Sort-Object Version -Descending | Select-Object -First 1
 if(-not $package){throw '未找到已安装的 ChatGPT App'}
 $exe=Join-Path $package.InstallLocation 'app\ChatGPT.exe'

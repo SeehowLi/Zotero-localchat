@@ -12,7 +12,7 @@ const server=http.createServer(async(req,res)=>{try{
   if(req.method==='GET'&&asset)return reply(res,200,fs.readFileSync(path.join(__dirname,asset)),asset.endsWith('.js')?'text/javascript; charset=utf-8':asset.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
   if(!authorized(req))return reply(res,403,{error:'连接凭据已更新，请在 Zotero 点击“当前论文”重新打开'});
   if(req.method==='GET'){
-    if(route==='/api/status')return reply(res,200,{version:'0.4.0',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
+    if(route==='/api/status')return reply(res,200,{version:'0.4.1',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
     if(route==='/api/context')return reply(res,200,sessions.info(url.searchParams.get('id')));
     if(route==='/api/transcript')return reply(res,200,sessions.transcript(url.searchParams.get('id')));
   }

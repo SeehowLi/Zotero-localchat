@@ -22,7 +22,7 @@
 2. 在 ChatGPT 的**聊天项目**里创建名为 `Paper` 的项目，保持账号已登录。
 3. 在 PowerShell 中运行 `scripts/Enable-App-Bridge.ps1`。它只创建桌面快捷方式。第一次设置时，在 App 文件菜单中完全退出，再通过 **ChatGPT - Local Chat** 快捷方式打开。
 4. 双击 `Start-LocalChat.cmd` 启动本机中转。它不会打开浏览器。
-5. 在 Zotero 的插件管理器中“从文件安装插件”，选择发布包里的 `Zotero-localchat-0.4.0.xpi`。建议先使用独立测试配置。
+5. 在 Zotero 的插件管理器中“从文件安装插件”，选择发布包里的 `Zotero-localchat-0.4.1.xpi`。建议先使用独立测试配置。
 6. 打开 PDF，点击阅读工具栏 **Local Chat**，或按 Ctrl＋Alt＋M。选中文字后也可以点击 **问 Local Chat**。
 
 日常启动 App 后运行 `Start-LocalChat.cmd`，在侧栏点击“当前论文”。可以用 `Stop-LocalChat.cmd` 停止中转；它不会退出 App 或删除聊天。旧 Paper Chat 插件会原位升级，原论文关联自动迁移一份到新配置目录。
