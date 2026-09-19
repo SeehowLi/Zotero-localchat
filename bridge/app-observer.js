@@ -1,0 +1,55 @@
+// Runs in the App renderer, not a website login/session clone.
+(() => {
+  if(globalThis.__paperChatObserver)return;
+  const name=e=>{const label=(e.getAttribute('aria-label')||e.innerText||e.textContent||'').trim();return e.getAttribute('role')==='menuitem'?label.split('\n')[0]:label;};
+  const visible=e=>!!e.getClientRects().length;
+  const all=(s,root=document)=>[...root.querySelectorAll(s)];
+  const cloudID=s=>/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(s||'');
+  function propsOf(row,limit=12){const out=[];let f=row?.[Object.keys(row||{}).find(k=>k.startsWith('__reactFiber$'))];for(let i=0;f&&i<limit;i++,f=f.return)if(f.memoizedProps)out.push(f.memoizedProps);return out;}
+  function paperRows(){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');return p?all('[role="button"][aria-label]',p.parentElement):[];}
+  function rowID(row){for(const p of propsOf(row)){const id=p.conversation?.id||p.conversation?.conversation_id||p.conversationId;if(cloudID(id))return id;}return null;}
+  function one(label,selector='button,[role="button"],[role="menuitem"],[role="menuitemradio"],[role="radio"],input'){
+    const found=all(selector).filter(e=>visible(e)&&name(e)===label&&!e.disabled);
+    if(found.length!==1)throw Error('未找到唯一的 App 控件：'+label);return found[0];
+  }
+  function editor(){return all('[contenteditable="true"],textarea').find(e=>visible(e)&&/^(给 ChatGPT 发消息|Message ChatGPT|在 Paper 中新建聊天|New chat in Paper)/.test(name(e)));}
+  function clean(root){const c=root.cloneNode(true);c.querySelectorAll('button,[role="button"],[role="status"],time,svg,script,style').forEach(e=>e.remove());return(c.innerText||c.textContent||'').replace(/\uFFFC/g,'').trim();}
+  function read(){
+    const main=document.querySelector('main')||document.querySelector('[role="main"]')||document;
+    const inPaper=all('button',main).some(e=>/^(项目：Paper|Project: Paper)$/.test(name(e)))||!!editor()&&/^(在 Paper 中新建聊天|New chat in Paper)/.test(name(editor()));
+    const selected=all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]')
+      .filter(e=>e.getAttribute('data-app-action-sidebar-thread-selected')==='true');
+    const localThreadId=(document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id')||(selected.length===1?selected[0].getAttribute('data-app-action-sidebar-thread-id'):null))?.replace(/^chatgpt:/,'')||null;
+    const currentRow=paperRows().find(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);
+    const threadId=/^local-chatgpt:/.test(localThreadId||'')?(rowID(currentRow)||propsOf(currentRow).map(p=>p.activeServerConversationId).find(cloudID)||localThreadId):localThreadId;
+    const input=editor(),draft=input?(input.value??input.innerText??'').trim():'';
+    const sending=all('button',main).some(e=>visible(e)&&/^(停止|停止生成|停止响应|Stop|Stop generating)$/.test(name(e)));
+    const turns=[];
+    const units=all('[data-content-search-unit-key]',main).filter(e=>/:(user|assistant)$/.test(e.getAttribute('data-content-search-unit-key')));
+    if(inPaper&&units.length)for(const unit of units){const id=unit.getAttribute('data-content-search-unit-key'),role=id.endsWith(':user')?'user':'assistant';const blocks=all(role==='user'?'[data-markdown-text-tone="user-message"]':'[data-markdown-text-style="assistant-message"]',unit);const text=blocks.length?blocks.map(e=>e.innerText).join('\n\n'):role==='assistant'?'':clean(unit).replace(/^(你说：|ChatGPT 说：|You said:|ChatGPT said:)\s*/,'');if(text.trim())turns.push({id,role,text:text.trim()});}
+    if(inPaper&&!units.length)for(const turn of all('[data-chatgpt-conversation-turn]',main)){
+      const headings=all('h1,h2,h3,h4,h5,h6,[role="heading"]',turn).filter(e=>/^(你说：|ChatGPT 说：|You said:|ChatGPT said:)$/.test(name(e)));
+      for(let i=0;i<headings.length;i++){
+        const h=headings[i],range=document.createRange();range.setStartAfter(h);if(headings[i+1])range.setEndBefore(headings[i+1]);else range.setEndAfter(turn.lastChild);
+        const fragment=range.cloneContents(),assistant=/^(ChatGPT 说|ChatGPT said)/.test(name(h));const text=assistant?all('[data-markdown-text-style="assistant-message"]',fragment).map(e=>e.textContent).join('\n\n'):clean(fragment);if(text)turns.push({role:/^(你说|You said)/.test(name(h))?'user':'assistant',text});
+      }
+    }
+    const attachments=all('button[aria-label^="移除 "]',main).filter(e=>e.closest('.composer-attachment-surface')).map(e=>({name:name(e).slice(3),text:e.closest('.composer-attachment-surface').innerText}));
+    const send=all('button',main).find(e=>/^(发送|发送消息|Send|Send message)$/.test(name(e)));
+    return {title:document.title,threadId,localThreadId,inPaper,draft,newPaper:!!input&&/^(在 Paper 中新建聊天|New chat in Paper)/.test(name(input)),sending,turns,attachments,canSend:!!send&&!send.disabled,canRename:!!currentRow&&propsOf(currentRow).some(p=>typeof p.getItems==='function')};
+  }
+  let signature='',scheduled=false;
+  function publish(){scheduled=false;const state=read(),next=JSON.stringify(state);if(next!==signature){signature=next;globalThis.__paperChatChanged?.(JSON.stringify({...state,publishedAt:Date.now()}));}}
+  const observer=new MutationObserver(()=>{if(!scheduled){scheduled=true;queueMicrotask(publish);}});
+  observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-busy','aria-checked','disabled','aria-disabled','data-app-action-sidebar-thread-selected','data-above-composer-conversation-id']});
+  globalThis.__paperChatObserver={read,one,name,editor,
+    open(id,title){let nodes=id?all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]').filter(e=>e.getAttribute('data-app-action-sidebar-thread-id')?.replace(/^chatgpt:/,'')===id):[];if(!nodes.length){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');if(p?.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}nodes=id?paperRows().filter(e=>rowID(e)===id):[];if(!nodes.length&&title)nodes=paperRows().filter(e=>name(e)===title);if(!nodes.length&&p){const more=all('button,[role="button"]',p.parentElement).find(e=>name(e)==='展开显示');if(more){more.click();return{expanded:true};}}}if(nodes.length!==1)throw Error('Paper 中未找到唯一的已关联聊天，请在 App 中打开该聊天一次。');nodes[0].click();return{opened:true};},
+    async rename(){const rows=paperRows().filter(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);if(rows.length!==1)throw Error('无法唯一定位当前 Paper 聊天');for(const p of propsOf(rows[0]))if(typeof p.getItems==='function'){const items=await p.getItems(),rename=items.find(i=>i.id==='rename-chatgpt-conversation');if(rename&&typeof rename.onSelect==='function'){rename.onSelect();return;}}throw Error('此 App 版本未提供可识别的重命名操作');},
+    click(label){one(label).click();},
+    focusEditor(){const e=editor();if(!e)throw Error('请在 App 中打开 Paper 聊天');if((e.value??e.innerText??'').trim())throw Error('App 输入框已有草稿，未覆盖');e.focus();},
+    send(expected){const e=editor(),norm=t=>String(t).replace(/\s+/g,' ').trim();if(!e||norm(e.value??e.innerText??'')!==norm(expected))throw Error('App 草稿与待发送内容不一致');const buttons=all('button',document.querySelector('main')||document).filter(e=>visible(e)&&/^(发送|发送消息|Send|Send message)$/.test(name(e))&&!e.disabled);if(buttons.length!==1)throw Error('发送按钮尚未就绪');buttons[0].click();},
+    models(){const control=document.querySelector('[data-reasoning-slider]'),slider=control&&document.querySelector('[role=menu] [role=slider]');let options=[];for(const p of propsOf(control,32)){for(const v of Object.values(p)){if(Array.isArray(v)&&v.length>1&&v.length<12&&v.every(o=>o&&typeof o==='object'&&typeof o.sliderLabel==='string'))options=v.map(o=>({label:o.sliderLabel}));}}const power=slider?{index:Number(slider.getAttribute('aria-valuenow')),max:Number(slider.getAttribute('aria-valuemax')),options}:null;return {power,models:all('[role="menuitemradio"],[role="radio"],input[type="radio"]').filter(visible).map(e=>({name:name(e),selected:e.getAttribute('aria-checked')==='true'||e.checked===true,enabled:!e.disabled&&e.getAttribute('aria-disabled')!=='true'})),strength:all('[role="menu"] [role="status"],[role="menuitem"]').map(name).find(n=>/第\s*\d+\s*项，共\s*\d+/.test(n))||'此模型未提供强度选项'};},
+    stop(){observer.disconnect();delete globalThis.__paperChatObserver;}
+  };
+  publish();
+})();

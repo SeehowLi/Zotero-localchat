@@ -1,0 +1,10 @@
+bin/
+dist/
+.test/
+.test-runtime/
+node_modules/
+*.log
+endpoint.json
+host.json
+papers.json
+uploads/

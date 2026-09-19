@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "Zotero-localchat",
+  "version": "0.4.0",
+  "description": "通过本机事件桥在阅读侧栏流式使用现有 ChatGPT App。",
+  "applications": {
+    "zotero": {
+      "id": "paper-chat-mirror@local.zotero",
+      "strict_min_version": "10.0",
+      "strict_max_version": "10.0.*",
+      "update_url": "https://raw.githubusercontent.com/SeehowLi/Zotero-localchat/main/updates.json"
+    }
+  }
+}

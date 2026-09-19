@@ -1,0 +1,12 @@
+name: Windows tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
