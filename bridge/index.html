@@ -3,7 +3,9 @@
 <div id="paper"></div><main id="messages" aria-label="聊天记录"><div class="empty">从这篇论文开始聊聊<br><small>首次提问时附上 PDF，后续沿用同一对话。</small></div></main>
 <div class="status-row"><div id="status" role="status" aria-live="polite">正在连接本机 App…</div><button id="latest" type="button" hidden>↓ 最新回复</button></div>
 <form id="composer"><div id="files" aria-label="待发送附件"></div><textarea id="prompt" aria-label="消息" placeholder="询问论文，或把文件拖到这里…" rows="2" maxlength="12000"></textarea>
-<div class="controls"><button type="button" id="attach" title="添加文件" aria-label="添加文件">＋</button><select id="model" aria-label="模型" disabled><option>连接后选择模型</option></select><button id="send" type="submit" disabled title="发送 · Enter" aria-label="发送">↑</button></div>
-<div id="powerLabel" hidden><div class="power-heading"><label for="power">推理强度 <strong id="powerText">强度</strong></label><span id="powerSync" role="status" aria-live="polite"></span></div><input id="power" type="range" min="0" max="4" step="0.01" aria-label="推理强度"><div id="powerTicks" aria-hidden="true"></div></div>
+<div class="controls"><button type="button" id="attach" title="添加文件" aria-label="添加文件">＋</button>
+<div id="modelPicker"><button type="button" id="model" aria-label="模型" aria-haspopup="listbox" aria-expanded="false" aria-controls="modelMenu" disabled><span id="modelName">选择模型</span><span aria-hidden="true">⌄</span></button><div id="modelMenu" role="listbox" aria-label="可用模型" hidden></div></div>
+<button type="button" id="powerToggle" aria-label="推理强度" aria-expanded="false" aria-controls="powerLabel" hidden><span id="powerValue">强度</span><span aria-hidden="true">⌄</span></button><button id="send" type="submit" disabled title="发送 · Enter" aria-label="发送">↑</button>
+<div id="powerLabel" hidden><div class="power-heading"><label for="power"><strong id="powerText">强度</strong></label></div><div class="power-track"><input id="power" type="range" min="0" max="4" step="0.01" aria-label="推理强度"><div id="powerTicks" aria-hidden="true"></div></div><span id="powerSync" role="status" aria-live="polite"></span></div></div>
 <input id="fileInput" type="file" multiple hidden></form><footer>Enter 发送 · Shift+Enter 换行 · Ctrl+滚轮调整字体 <button id="zoomReset" title="恢复默认字号">100%</button></footer>
 <script src="/stream.js"></script><script src="/client.js"></script></body></html>

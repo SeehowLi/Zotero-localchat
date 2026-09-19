@@ -6,6 +6,45 @@
   const all=(s,root=document)=>[...root.querySelectorAll(s)];
   const cloudID=s=>/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(s||'');
   function propsOf(row,limit=12){const out=[];let f=row?.[Object.keys(row||{}).find(k=>k.startsWith('__reactFiber$'))];for(let i=0;f&&i<limit;i++,f=f.return)if(f.memoizedProps)out.push(f.memoizedProps);return out;}
+  function picker(){
+    const trigger=all('button').find(e=>name(e)==='选择 ChatGPT 模型');
+    return propsOf(trigger,40).find(p=>Array.isArray(p.powerSelections)&&Array.isArray(p.modelListConfig?.options)&&typeof p.onSelectPower==='function');
+  }
+  function settingsSnapshot(p){
+    if(!p)return null;
+    const models=p.modelListConfig.options.map(o=>({id:o.id,name:o.label,selected:o.selected===true,enabled:!o.disabled}));
+    const index=p.powerSelections.findIndex(o=>o.id===p.selectedPowerSelection?.id);
+    if(models.filter(o=>o.selected).length!==1||p.powerSelections.length&&index<0)return null;
+    const power=p.powerSelections.length?{index,max:p.powerSelections.length-1,options:p.powerSelections.map(o=>({label:o.sliderLabel}))}:null;
+    return {models,power,strength:power?.options[index].label||'此模型未提供强度选项',transport:'native-controls'};
+  }
+  async function settings(choice){
+    const initial=picker();if(!initial)return null; // Older App versions keep the menu adapter.
+    const thread=()=>document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id'),identity=thread(),started=performance.now();
+    let expectedModel,expectedPower;
+    if(choice){
+      if(initial.disabled)throw Error('App 模型控件暂不可用');
+      if(choice.model!==undefined){
+        const matches=initial.modelListConfig.options.filter(o=>o.label===choice.model&&!o.disabled);
+        if(matches.length!==1||typeof matches[0].onSelect!=='function')throw Error('模型不可用');
+        expectedModel=matches[0].id;await matches[0].onSelect();
+      }else{
+        const before=settingsSnapshot(initial);if(!before?.power)throw Error('此模型没有可调节的强度');
+        const index=choice.index!==undefined?choice.index:[-1,1].includes(choice.delta)?Math.max(0,Math.min(before.power.max,before.power.index+choice.delta)):NaN;
+        if(!Number.isInteger(index)||index<0||index>before.power.max)throw Error('强度档位无效');
+        expectedPower=initial.powerSelections[index].id;
+        // Use the same native selection callback as the App slider; no synthetic menu cycle.
+        await initial.onSelectPower(initial.powerSelections[index]);
+      }
+    }
+    do{
+      if(thread()!==identity)throw Error('App 聊天已切换，设置未确认');
+      const current=picker(),snapshot=settingsSnapshot(current);
+      if(snapshot&&(!expectedModel||snapshot.models.some(m=>m.id===expectedModel&&m.selected))&&(!expectedPower||current.selectedPowerSelection?.id===expectedPower))return {...snapshot,settingsMs:Math.round(performance.now()-started)};
+      await new Promise(resolve=>setTimeout(resolve,16));
+    }while(performance.now()-started<1800);
+    throw Error('App 尚未确认设置，请重连后检查');
+  }
   function paperRows(){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');return p?all('[role="button"][aria-label]',p.parentElement):[];}
   function rowID(row){for(const p of propsOf(row)){const id=p.conversation?.id||p.conversation?.conversation_id||p.conversationId;if(cloudID(id))return id;}return null;}
   function one(label,selector='button,[role="button"],[role="menuitem"],[role="menuitemradio"],[role="radio"],input'){
@@ -42,7 +81,7 @@
   function publish(){scheduled=false;const state=read(),next=JSON.stringify(state);if(next!==signature){signature=next;globalThis.__paperChatChanged?.(JSON.stringify({...state,publishedAt:Date.now()}));}}
   const observer=new MutationObserver(()=>{if(!scheduled){scheduled=true;queueMicrotask(publish);}});
   observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-busy','aria-checked','disabled','aria-disabled','data-app-action-sidebar-thread-selected','data-above-composer-conversation-id']});
-  globalThis.__paperChatObserver={read,one,name,editor,
+  globalThis.__paperChatObserver={read,one,name,editor,settings,
     open(id,title){let nodes=id?all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]').filter(e=>e.getAttribute('data-app-action-sidebar-thread-id')?.replace(/^chatgpt:/,'')===id):[];if(!nodes.length){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');if(p?.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}nodes=id?paperRows().filter(e=>rowID(e)===id):[];if(!nodes.length&&title)nodes=paperRows().filter(e=>name(e)===title);if(!nodes.length&&p){const more=all('button,[role="button"]',p.parentElement).find(e=>name(e)==='展开显示');if(more){more.click();return{expanded:true};}}}if(nodes.length!==1)throw Error('Paper 中未找到唯一的已关联聊天，请在 App 中打开该聊天一次。');nodes[0].click();return{opened:true};},
     async rename(){const rows=paperRows().filter(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);if(rows.length!==1)throw Error('无法唯一定位当前 Paper 聊天');for(const p of propsOf(rows[0]))if(typeof p.getItems==='function'){const items=await p.getItems(),rename=items.find(i=>i.id==='rename-chatgpt-conversation');if(rename&&typeof rename.onSelect==='function'){rename.onSelect();return;}}throw Error('此 App 版本未提供可识别的重命名操作');},
     click(label){one(label).click();},
