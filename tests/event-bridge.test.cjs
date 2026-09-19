@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),http=require('node:http'),{spawn}=require('node:child_process');
 const AppStream=require('../bridge/app-stream.cjs'),EventSessions=require('../bridge/event-sessions.cjs');
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(check){for(let i=0;i<150;i++){if(await check())return;await wait(40);}throw Error('Test page did not reach expected state');}
 test('real CDP: DOM events, background input, model menu, and no duplicate sends',async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'paper-cdp-test-')),profile=path.join(root,'browser');
   let app,browser;
@@ -20,7 +21,7 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   const targets=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json(),target=targets.find(t=>t.url.startsWith(`http://127.0.0.1:${server.address().port}`));assert.ok(target);
   app=new AppStream();await assert.rejects(app.connect(target),/只能连接/);
   // Test fixture connects explicitly; production discovery accepts app:// pages only.
-  await app.cdp.connect(target.webSocketDebuggerUrl);await app.observe();assert.equal((await app.read()).threadId,'00000000-0000-4000-8000-000000000001');
+  await app.cdp.connect(target.webSocketDebuggerUrl);await until(()=>app.cdp.evaluate('document.readyState==="complete"&&!!document.getElementById("editor")'));await app.observe();assert.equal((await app.read()).threadId,'00000000-0000-4000-8000-000000000001');
   const sessions=new EventSessions(root,app);sessions.bindings['paper:fixture']={title:'Paper fixture',threadId:'00000000-0000-4000-8000-000000000001',uploaded:true,phase:'ready'};
   const c=sessions.register({mode:'paper',key:'fixture',title:'Paper fixture',pdfPath:path.join(root,'fixture.pdf')});
   await app.cdp.evaluate('(()=>{const u=document.createElement("div");u.setAttribute("data-content-search-unit-key","thinking-only:assistant");u.textContent="PRIVATE THOUGHT";document.querySelector("main").append(u)})()');assert.equal((await app.read()).turns.some(t=>t.text.includes('PRIVATE THOUGHT')),false);await app.cdp.evaluate('document.querySelector("[data-content-search-unit-key]").remove()');
@@ -40,10 +41,10 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   assert.equal(await app.cdp.evaluate('document.getElementById("zoomReset").textContent'),'105%');
   await app.cdp.call('Page.reload');for(let i=0;i<100;i++){if(await app.cdp.evaluate('!!document.getElementById("send")&&!document.getElementById("send").disabled'))break;await wait(30);}
   assert.equal(await app.cdp.evaluate('document.getElementById("zoomReset").textContent'),'105%');
-  await app.cdp.evaluate('document.getElementById("power").dispatchEvent(new WheelEvent("wheel",{deltaY:-100,bubbles:true,cancelable:true}))');await wait(100);assert.equal(uiStrength,2);
-  await app.cdp.evaluate('(()=>{const dt=new DataTransfer();dt.items.add(new File(["synthetic content"],"extra.txt",{type:"text/plain"}));document.dispatchEvent(new DragEvent("drop",{dataTransfer:dt,bubbles:true,cancelable:true}));})()');await wait(100);
+  await app.cdp.evaluate('document.getElementById("power").dispatchEvent(new WheelEvent("wheel",{deltaY:-100,bubbles:true,cancelable:true}))');await until(()=>uiStrength===2);assert.equal(uiStrength,2);
+  await app.cdp.evaluate('(()=>{const dt=new DataTransfer();dt.items.add(new File(["synthetic content"],"extra.txt",{type:"text/plain"}));document.dispatchEvent(new DragEvent("drop",{dataTransfer:dt,bubbles:true,cancelable:true}));})()');await until(()=>app.cdp.evaluate('document.getElementById("files").children.length===1'));
   assert.equal(await app.cdp.evaluate('document.getElementById("files").textContent'),'extra.txt ×');assert.equal(uiSends,0,'drop alone does not send');
-  await app.cdp.evaluate('document.getElementById("prompt").value="hello";document.getElementById("prompt").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))');await wait(100);
+  await app.cdp.evaluate('document.getElementById("prompt").value="hello";document.getElementById("prompt").dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))');await until(()=>app.cdp.evaluate('document.getElementById("messages").textContent.includes("Final only")&&document.getElementById("prompt").value===""'));
   assert.equal(uiSends,1);assert.deepEqual(uiFiles,['file-one']);assert.match(await app.cdp.evaluate('document.getElementById("messages").textContent'),/Final only/);assert.equal(await app.cdp.evaluate('document.getElementById("prompt").value'),'');
 
 });
