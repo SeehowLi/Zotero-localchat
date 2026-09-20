@@ -4,6 +4,18 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 class Host {
   constructor(runtime){this.file=path.join(runtime,'host.json');this.helper=path.join(__dirname,'../bin/LocalChatWindow.exe');}
   async native(...args){const r=await execFile(this.helper,args,{windowsHide:true,timeout:10000,encoding:'utf8'});return JSON.parse(r.stdout);}
+  async inspect(){
+    let targets;try{targets=await CDP.targets();}catch{const r=await execFile('powershell.exe',['-NoProfile','-Command',"[bool](Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)"],{windowsHide:true,timeout:5000,encoding:'utf8'});return{appOpen:r.stdout.trim().toLowerCase()==='true',debugReady:false,projects:[]};}
+    const target=targets.find(t=>new URL(t.url).pathname==='/index.html'&&!new URL(t.url).searchParams.has('initialRoute'))||targets[0];
+    if(!target)return{appOpen:true,debugReady:false,projects:[]};
+    const c=new CDP();try{await c.connect(target.webSocketDebuggerUrl);const projects=await c.evaluate("[...document.querySelectorAll('[data-app-action-sidebar-project-label]')].map(e=>e.getAttribute('data-app-action-sidebar-project-label')).filter(Boolean)");return{appOpen:true,debugReady:true,projects};}finally{c.close();}
+  }
+  async openApp(){
+    let targets=[];try{targets=await CDP.targets();}catch{}
+    const main=targets.find(t=>new URL(t.url).pathname==='/index.html'&&!new URL(t.url).searchParams.has('initialRoute'));
+    if(main){const c=new CDP();try{await c.connect(main.webSocketDebuggerUrl);await c.call('Page.bringToFront');return{opened:true};}finally{c.close();}}
+    await execFile('powershell.exe',['-NoProfile','-Command',"$link=Join-Path ([Environment]::GetFolderPath('Desktop')) 'ChatGPT - Local Chat.lnk'; if(-not(Test-Path -LiteralPath $link)){throw 'Run scripts/Enable-App-Bridge.ps1 first'}; Start-Process -FilePath $link -WindowStyle Normal"],{windowsHide:true,timeout:10000});return{opened:true};
+  }
   async target(allowCreate=true){
     const targets=await CDP.targets();let saved;try{saved=JSON.parse(fs.readFileSync(this.file,'utf8'));}catch{}
     let target=targets.find(t=>t.id===saved?.targetId);

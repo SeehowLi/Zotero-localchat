@@ -47,7 +47,7 @@ function controls(){
   $('send').disabled=busy||!ready||configuring||configUnconfirmed;
   $('model').disabled=busy||!ready;$('power').disabled=busy||!ready;$('powerToggle').disabled=busy||!ready;
   $('powerToggle').setAttribute('aria-busy',String(configuring));if(busy)closePickers();
-  for(const id of ['new','attach','reconnect'])$(id).disabled=busy||configuring;
+  for(const id of ['new','attach','reconnect'])$(id).disabled=busy||configuring||(!ready&&id!=='reconnect');
   $('composer').classList.toggle('syncing',configuring);
   $('powerSync').textContent=configUnconfirmed?'未同步':dragging?'松开应用':configuring?'同步中…':'';
   $('powerSync').classList.toggle('error',configUnconfirmed);
@@ -167,7 +167,21 @@ async function flushConfig(){
   }finally{configFlight=null;controls();if(Object.keys(configPending).length&&!dragging&&!configTimer)flushConfig();}
 }
 function commitPower(delay=0){if(busy||!ready||!power)return;previewPower=Math.round(Number($('power').value));$('power').value=previewPower;powerText(previewPower);configPending.index=previewPower;scheduleConfig(delay);}
-async function connect(recover=false){lock(true);status('正在连接本机 App…');try{await api('reconnect',{});info=await api('context?id='+context);lastSubmittedDraft=localStorage.getItem(pendingDraftKey());sendPending=!!lastSubmittedDraft;if(!$('prompt').value)$('prompt').value=localStorage.getItem(draftKey())||(info.excerpt?'请解释这段文字：\n\n'+info.excerpt:'');if(recover&&['uncertain','sending','generating'].includes(info.phase))info=await api('session/recover',{id:context});info=await api('session/open',{id:context});$('paper').textContent=info.mode==='paper'?info.title:'Paper · 空白聊天';$('paper').title=$('paper').textContent;turns=(await api('transcript?id='+context)).turns;if(connectedContext!==context){connectedContext=context;const i=turns.map(t=>t.role).lastIndexOf('user');anchorQuestion(i<0?null:LocalChatRich.key(turns[i],i));}render();models(await api('session/model',{id:context}));configUnconfirmed=false;ready=true;resizeInput();status(info.uploaded?'已关联这篇论文 · 可继续提问、追加文件':info.mode==='paper'?'首次发送时附上 PDF':'空白聊天 · 不附带论文');if(sendPending&&info.phase==='ready'){finishSubmittedDraft();for(const f of queued)await api('upload/remove',{id:context,file:f.id});queued=[];files();}}catch(e){ready=false;if(sendPending)restoreSubmittedDraft();status(e.message+'。可点击重连。',true);}finally{lock(false);}}
+function showSetup(state){
+  $('setup').hidden=state.ready;for(const e of [$('paper'),$('chatLayout'),$('composer'),document.querySelector('footer')])e.hidden=!state.ready;
+  if(state.ready){$('new').title='在 '+state.project+' 中开始空白聊天，不上传论文';return;}
+  $('setupStatus').textContent=!state.appOpen?'本机 App 尚未打开。':!state.debugReady?'App 已打开，但本地连接尚未启用。请完全退出 App，再用专用快捷方式打开。':'已连接本机 App，请确认 ChatGPT 聊天项目。';
+  if(!$('setupProject').value)$('setupProject').value=state.project;
+  $('setupProjects').replaceChildren(...[...new Set(state.projects)].map(name=>{const option=document.createElement('option');option.value=name;return option;}));
+  $('setupUse').disabled=!state.debugReady;
+}
+let setupBusy=false;
+async function setupAction(action){if(setupBusy||busy)return;setupBusy=true;for(const id of ['setupOpen','setupCheck','setupUse'])$(id).disabled=true;try{await action();}catch(e){status(e.message,true);}finally{setupBusy=false;for(const id of ['setupOpen','setupCheck','setupUse'])$(id).disabled=false;}}
+$('projectSettings').onclick=()=>setupAction(async()=>{const state=await api('setup');$('appearanceMenu').hidden=true;$('appearance').setAttribute('aria-expanded','false');$('setupProject').value=state.project;ready=false;showSetup({...state,ready:false});controls();status('确认聊天项目后点击“使用这个项目”，或点击“重连”返回。');});
+$('setupOpen').onclick=()=>setupAction(async()=>{await api('setup/open-app',{});status('在 App 中准备好聊天项目后，返回这里点击“重新检查”。');});
+$('setupCheck').onclick=()=>setupAction(()=>connect());
+$('setupUse').onclick=()=>setupAction(async()=>{await api('setup/project',{project:$('setupProject').value});await connect();});
+async function connect(recover=false){lock(true);status('正在连接本机 App…');try{const setup=await api('setup');showSetup(setup);if(!setup.ready){ready=false;status('请完成首次使用设置');return;}const connection=await api('reconnect',{});info=await api('context?id='+context);lastSubmittedDraft=localStorage.getItem(pendingDraftKey());sendPending=!!lastSubmittedDraft;if(!$('prompt').value)$('prompt').value=localStorage.getItem(draftKey())||(info.excerpt?'请解释这段文字：\n\n'+info.excerpt:'');if(recover&&['uncertain','sending','generating'].includes(info.phase))info=await api('session/recover',{id:context});info=await api('session/open',{id:context});$('paper').textContent=info.mode==='paper'?info.title:(connection.project||setup.project)+' · 空白聊天';$('paper').title=$('paper').textContent;turns=(await api('transcript?id='+context)).turns;if(connectedContext!==context){connectedContext=context;const i=turns.map(t=>t.role).lastIndexOf('user');anchorQuestion(i<0?null:LocalChatRich.key(turns[i],i));}render();models(await api('session/model',{id:context}));configUnconfirmed=false;ready=true;resizeInput();status(info.uploaded?'已关联这篇论文 · 可继续提问、追加文件':info.mode==='paper'?'首次发送时附上 PDF':'空白聊天 · 不附带论文');if(sendPending&&info.phase==='ready'){finishSubmittedDraft();for(const f of queued)await api('upload/remove',{id:context,file:f.id});queued=[];files();}}catch(e){ready=false;if(sendPending)restoreSubmittedDraft();status(e.message+'。可点击重连。',true);}finally{lock(false);}}
 $('prompt').value=localStorage.getItem(draftKey())||'';$('prompt').oninput=()=>{draftRevision++;localStorage.setItem(draftKey(),$('prompt').value);resizeInput();};
 $('reconnect').onclick=()=>connect(true);
 $('new').onclick=async()=>{if(busy||hasConfig())return;if(($('prompt').value.trim()||queued.length)&&!confirm('开始新聊天？当前输入会保留在原会话，未发送附件会移除。'))return;lock(true);try{for(const f of queued)await api('upload/remove',{id:context,file:f.id});queued=[];files();const c=await api('context',{mode:'blank'});context=c.id;const url=new URL(location.href);url.searchParams.set('context',context);history.replaceState(null,'',url);$('prompt').value='';sendPending=false;await connect();}catch(e){status(e.message,true);lock(false);}};

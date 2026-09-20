@@ -7,4 +7,5 @@ node_modules/
 endpoint.json
 host.json
 papers.json
+settings.json
 uploads/

@@ -1,6 +1,9 @@
 // Runs in the App renderer, not a website login/session clone.
 (() => {
   if(globalThis.__paperChatObserver)return;
+  let project=globalThis.__localChatProject||'Paper';
+  const newEditor=e=>!!e&&['在 '+project+' 中新建聊天','New chat in '+project].some(prefix=>name(e).startsWith(prefix));
+  function projectRow(){const rows=all('[data-app-action-sidebar-project-label]').filter(e=>e.getAttribute('data-app-action-sidebar-project-label')===project);if(rows.length!==1)throw Error('未找到唯一的聊天项目：'+project);return rows[0];}
   const name=e=>{const label=(e.getAttribute('aria-label')||e.innerText||e.textContent||'').trim();return e.getAttribute('role')==='menuitem'?label.split('\n')[0]:label;};
   const visible=e=>!!e.getClientRects().length;
   const all=(s,root=document)=>[...root.querySelectorAll(s)];
@@ -45,13 +48,13 @@
     }while(performance.now()-started<1800);
     throw Error('App 尚未确认设置，请重连后检查');
   }
-  function paperRows(){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');return p?all('[role="button"][aria-label]',p.parentElement):[];}
+  function paperRows(){let p;try{p=projectRow();}catch{return [];}return all('[role="button"][aria-label]',p.parentElement);}
   function rowID(row){for(const p of propsOf(row)){const id=p.conversation?.id||p.conversation?.conversation_id||p.conversationId;if(cloudID(id))return id;}return null;}
   function one(label,selector='button,[role="button"],[role="menuitem"],[role="menuitemradio"],[role="radio"],input'){
     const found=all(selector).filter(e=>visible(e)&&name(e)===label&&!e.disabled);
     if(found.length!==1)throw Error('未找到唯一的 App 控件：'+label);return found[0];
   }
-  function editor(){return all('[contenteditable="true"],textarea').find(e=>visible(e)&&/^(给 ChatGPT 发消息|Message ChatGPT|在 Paper 中新建聊天|New chat in Paper)/.test(name(e)));}
+  function editor(){return all('[contenteditable="true"],textarea').find(e=>visible(e)&&(/^(给 ChatGPT 发消息|Message ChatGPT)/.test(name(e))||newEditor(e)));}
   function clean(root){const c=root.cloneNode(true);c.querySelectorAll('button,[role="button"],[role="status"],time,svg,script,style').forEach(e=>e.remove());return(c.innerText||c.textContent||'').replace(/\uFFFC/g,'').trim();}
   const unitCache=new WeakMap();
   function invalidate(records){for(const record of records){const e=record.target.nodeType===1?record.target:record.target.parentElement;const unit=e?.closest('[data-content-search-unit-key],[data-chatgpt-conversation-turn]');if(unit)unitCache.delete(unit);}}
@@ -60,7 +63,7 @@
   function read(){
     invalidate(observer.takeRecords());
     const main=document.querySelector('main')||document.querySelector('[role="main"]')||document;
-    const inPaper=all('button',main).some(e=>/^(项目：Paper|Project: Paper)$/.test(name(e)))||!!editor()&&/^(在 Paper 中新建聊天|New chat in Paper)/.test(name(editor()));
+    const inPaper=all('button',main).some(e=>['项目：'+project,'Project: '+project].includes(name(e)))||newEditor(editor());
     const selected=all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]')
       .filter(e=>e.getAttribute('data-app-action-sidebar-thread-selected')==='true');
     const localThreadId=(document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id')||(selected.length===1?selected[0].getAttribute('data-app-action-sidebar-thread-id'):null))?.replace(/^chatgpt:/,'')||null;
@@ -87,7 +90,7 @@
     }));
     const attachments=all('button[aria-label^="移除 "]',main).filter(e=>e.closest('.composer-attachment-surface')).map(e=>({name:name(e).slice(3),text:e.closest('.composer-attachment-surface').innerText}));
     const send=all('button',main).find(e=>/^(发送|发送消息|Send|Send message)$/.test(name(e)));
-    return {title:document.title,threadId,localThreadId,inPaper,draft,newPaper:!!input&&/^(在 Paper 中新建聊天|New chat in Paper)/.test(name(input)),sending,turns,attachments,canSend:!!send&&!send.disabled,canRename:!!currentRow&&propsOf(currentRow).some(p=>typeof p.getItems==='function')};
+    return {title:document.title,threadId,localThreadId,inPaper,draft,newPaper:newEditor(input),sending,turns,attachments,canSend:!!send&&!send.disabled,canRename:!!currentRow&&propsOf(currentRow).some(p=>typeof p.getItems==='function')};
   }
   let signature='',scheduled=false,lastIdentity='',first=true;const changes=LocalChatRich.differ();
   function publish(){
@@ -101,10 +104,12 @@
   const observer=new MutationObserver(records=>{invalidate(records);if(!scheduled){scheduled=true;queueMicrotask(publish);}});
   observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-busy','aria-checked','disabled','aria-disabled','data-app-action-sidebar-thread-selected','data-above-composer-conversation-id','class','href','colspan','rowspan','start']});
   globalThis.__paperChatObserver={read,one,name,editor,settings,
-    open(id,title){let nodes=id?all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]').filter(e=>e.getAttribute('data-app-action-sidebar-thread-id')?.replace(/^chatgpt:/,'')===id):[];if(!nodes.length){const p=document.querySelector('[data-app-action-sidebar-project-label="Paper"]');if(p?.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}nodes=id?paperRows().filter(e=>rowID(e)===id):[];if(!nodes.length&&title)nodes=paperRows().filter(e=>name(e)===title);if(!nodes.length&&p){const more=all('button,[role="button"]',p.parentElement).find(e=>name(e)==='展开显示');if(more){more.click();return{expanded:true};}}}if(nodes.length!==1)throw Error('Paper 中未找到唯一的已关联聊天，请在 App 中打开该聊天一次。');nodes[0].click();return{opened:true};},
-    async rename(){const rows=paperRows().filter(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);if(rows.length!==1)throw Error('无法唯一定位当前 Paper 聊天');for(const p of propsOf(rows[0]))if(typeof p.getItems==='function'){const items=await p.getItems(),rename=items.find(i=>i.id==='rename-chatgpt-conversation');if(rename&&typeof rename.onSelect==='function'){rename.onSelect();return;}}throw Error('此 App 版本未提供可识别的重命名操作');},
+    setProject(value){project=value;first=true;publish();},
+    startChat(){const p=projectRow();if(p.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}const labels=['在 '+project+' 中开启新聊天','New chat in '+project,'Start a new chat in '+project];const found=all('button,[role="button"]',p.parentElement).filter(e=>visible(e)&&labels.includes(name(e))&&!e.disabled);if(found.length!==1)throw Error('未找到该项目的 ChatGPT 新聊天按钮；请在 App 中展开聊天项目：'+project);found[0].click();return{opened:true};},
+    open(id,title){let nodes=id?all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]').filter(e=>e.getAttribute('data-app-action-sidebar-thread-id')?.replace(/^chatgpt:/,'')===id):[];if(!nodes.length){const p=projectRow();if(p?.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}nodes=id?paperRows().filter(e=>rowID(e)===id):[];if(!nodes.length&&title)nodes=paperRows().filter(e=>name(e)===title);if(!nodes.length&&p){const more=all('button,[role="button"]',p.parentElement).find(e=>name(e)==='展开显示');if(more){more.click();return{expanded:true};}}}if(nodes.length!==1)throw Error('项目中未找到唯一的已关联聊天，请在 App 中打开该聊天一次。');nodes[0].click();return{opened:true};},
+    async rename(){const rows=paperRows().filter(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);if(rows.length!==1)throw Error('无法唯一定位当前项目聊天');for(const p of propsOf(rows[0]))if(typeof p.getItems==='function'){const items=await p.getItems(),rename=items.find(i=>i.id==='rename-chatgpt-conversation');if(rename&&typeof rename.onSelect==='function'){rename.onSelect();return;}}throw Error('此 App 版本未提供可识别的重命名操作');},
     click(label){one(label).click();},
-    focusEditor(){const e=editor();if(!e)throw Error('请在 App 中打开 Paper 聊天');if((e.value??e.innerText??'').trim())throw Error('App 输入框已有草稿，未覆盖');e.focus();},
+    focusEditor(){const e=editor();if(!e)throw Error('请在 App 中打开已选择项目的聊天');if((e.value??e.innerText??'').trim())throw Error('App 输入框已有草稿，未覆盖');e.focus();},
     send(expected){const e=editor(),norm=t=>String(t).replace(/\s+/g,' ').trim();if(!e||norm(e.value??e.innerText??'')!==norm(expected))throw Error('App 草稿与待发送内容不一致');const buttons=all('button',document.querySelector('main')||document).filter(e=>visible(e)&&/^(发送|发送消息|Send|Send message)$/.test(name(e))&&!e.disabled);if(buttons.length!==1)throw Error('发送按钮尚未就绪');buttons[0].click();},
     models(){const control=document.querySelector('[data-reasoning-slider]'),slider=control&&document.querySelector('[role=menu] [role=slider]');let options=[];for(const p of propsOf(control,32)){for(const v of Object.values(p)){if(Array.isArray(v)&&v.length>1&&v.length<12&&v.every(o=>o&&typeof o==='object'&&typeof o.sliderLabel==='string'))options=v.map(o=>({label:o.sliderLabel}));}}const power=slider?{index:Number(slider.getAttribute('aria-valuenow')),max:Number(slider.getAttribute('aria-valuemax')),options}:null;return {power,models:all('[role="menuitemradio"],[role="radio"],input[type="radio"]').filter(visible).map(e=>({name:name(e),selected:e.getAttribute('aria-checked')==='true'||e.checked===true,enabled:!e.disabled&&e.getAttribute('aria-disabled')!=='true'})),strength:all('[role="menu"] [role="status"],[role="menuitem"]').map(name).find(n=>/第\s*\d+\s*项，共\s*\d+/.test(n))||'此模型未提供强度选项'};},
     stop(){observer.disconnect();delete globalThis.__paperChatObserver;}

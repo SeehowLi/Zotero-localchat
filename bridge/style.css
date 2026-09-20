@@ -20,6 +20,11 @@ main{overflow:auto;flex:1;min-width:0;min-height:0;scrollbar-width:thin;scrollba
 #status.error,#powerSync.error{color:#c84932}
 #latest{flex-shrink:0;font-size:11px;padding:4px 7px;background:var(--panel)}
 [hidden]{display:none!important}
+#setup{flex:1;min-height:0;overflow:auto;padding:8px 2px 20px;line-height:1.7}
+#setup h2{font-size:20px;margin:10px 0}#setup p,#setup ol{font-size:14px}#setup ol{padding-left:24px}#setup li{margin:8px 0}
+#setup label{display:block;font-weight:600;font-size:14px;margin-top:18px}
+#setupProject{display:block;width:100%;font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0 12px;min-width:0}
+.setup-actions{display:flex;gap:8px;flex-wrap:wrap}#setupUse{background:var(--fg);color:var(--bg)}#setupHint{color:var(--muted)}
 #composer{border:1px solid var(--line);border-radius:20px;background:var(--panel);padding:10px 11px 9px;flex-shrink:0;transition:border-color .12s ease}
 #composer:focus-within{border-color:var(--muted)}
 textarea{display:block;resize:none;width:100%;min-height:54px;max-height:144px;border:0;background:transparent;color:inherit;outline:none;padding:4px 2px;font:inherit;line-height:1.5;overflow-y:auto;scrollbar-width:thin}

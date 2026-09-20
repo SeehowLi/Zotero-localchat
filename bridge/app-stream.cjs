@@ -1,6 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),{EventEmitter}=require('node:events'),CDP=require('./cdp.cjs'),Rich=require('./rich.js');
 class AppStream extends EventEmitter {
-  constructor(host){super();this.host=host;this.cdp=new CDP();this.state=null;this.generation=0;this.aliases=new Map();}
+  constructor(host){super();this.host=host;this.cdp=new CDP();this.state=null;this.generation=0;this.aliases=new Map();this.project='Paper';}
+  async setProject(project){if(this.project===project)return;this.project=project;if(this.cdp.ws?.readyState===1){await this.cdp.evaluate('globalThis.__paperChatObserver.setProject('+JSON.stringify(project)+')');this.state=await this.read();}}
   async connect(target){
     if(target.type!=='page'||!/^app:\/\//.test(target.url))throw Error('只能连接现有 App 页面');
     await this.cdp.connect(target.webSocketDebuggerUrl);
@@ -11,7 +12,7 @@ class AppStream extends EventEmitter {
   async observe(){
     this.cdp.on('Runtime.bindingCalled',e=>{if(e.name!=='__paperChatChanged')return;try{const event=JSON.parse(e.payload),s=this.identify({...event,turns:event.type==='patch'?Rich.apply(this.state?.turns||[],event):event.turns});this.state=s;this.emit('snapshot',s);}catch{}});
     this.cdp.on('disconnected',()=>{this.state=null;this.emit('disconnected');});
-    const script=fs.readFileSync(path.join(__dirname,'rich.js'),'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'app-observer.js'),'utf8');
+    const script='globalThis.__localChatProject='+JSON.stringify(this.project)+';\n'+fs.readFileSync(path.join(__dirname,'rich.js'),'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'app-observer.js'),'utf8');
     await this.cdp.call('Runtime.enable');await this.cdp.call('Page.enable');
     await this.cdp.call('Runtime.addBinding',{name:'__paperChatChanged'});
     await this.cdp.evaluate('globalThis.__paperChatObserver?.stop()');
@@ -31,7 +32,7 @@ class AppStream extends EventEmitter {
     return new Promise((resolve,reject)=>{const done=(e,s)=>{clearTimeout(timer);this.off('snapshot',update);this.off('disconnected',closed);e?reject(e):resolve(s);};const update=s=>{if(predicate(s))done(null,s);},closed=()=>done(Error('App 连接中断'));const timer=setTimeout(()=>done(Error('App 页面尚未就绪')),timeout);this.on('snapshot',update);this.on('disconnected',closed);});
   }
   async open(threadId,title){if(threadId&&this.state?.threadId===threadId&&this.state.inPaper)return this.state;for(let i=0;i<8;i++){const r=await this.command('open',threadId,title);if(!r?.expanded)break;await new Promise(r=>setTimeout(r,200));}return this.waitFor(s=>s?.inPaper&&(threadId?s.threadId===threadId:s.title===title));}
-  async newChat(){const old=await this.read();if(old.newPaper&&!old.draft&&!old.sending&&!old.attachments.length)return old;if(old.draft||old.sending)throw Error('App 有未发送草稿或正在回答，请先处理');await this.cdp.evaluate(`globalThis.__paperChatObserver.one('在 Paper 中开启新聊天').click()`);return this.waitFor(s=>s?.newPaper&&s.threadId!==old.threadId);}
+  async newChat(){const old=await this.read();if(old.newPaper&&!old.draft&&!old.sending&&!old.attachments.length)return old;if(old.draft||old.sending)throw Error('App 有未发送草稿或正在回答，请先处理');for(let i=0;i<4;i++){const r=await this.cdp.evaluate('globalThis.__paperChatObserver.startChat()');if(!r?.expanded)break;await new Promise(r=>setTimeout(r,100));}return this.waitFor(s=>s?.newPaper&&s.threadId!==old.threadId);}
   async attach(file){const filename=path.basename(file),existing=(await this.read()).attachments.find(a=>a.name===filename);if(!existing){const doc=await this.cdp.call('DOM.getDocument',{depth:0}),node=await this.cdp.call('DOM.querySelector',{nodeId:doc.root.nodeId,selector:'input[type="file"][aria-label="附加文件"]'});if(!node.nodeId)throw Error('App 未提供文件附件输入框');await this.cdp.call('DOM.setFileInputFiles',{nodeId:node.nodeId,files:[file]});}return this.waitFor(s=>s?.attachments.some(a=>a.name===filename&&!/上传失败|无法上传|failed|error/i.test(a.text))&&s.canSend,120000);}
   async rename(title){if(!await this.cdp.evaluate('!!document.querySelector("[role=dialog] input")'))await this.command('rename');await new Promise(r=>setTimeout(r,100));await this.cdp.evaluate('(()=>{const e=document.querySelector("[role=dialog] input");if(!e)throw Error("未找到聊天标题输入框");e.focus();e.select();})()');await this.cdp.call('Input.insertText',{text:title});await this.click('保存','[role="dialog"] button');return this.waitFor(s=>s?.title===title);}
   async menuReady(selector){for(let i=0;i<40;i++){if(await this.cdp.evaluate('!!document.querySelector('+JSON.stringify(selector)+')'))return;await new Promise(r=>setTimeout(r,50));}throw Error('App 模型菜单尚未就绪，请重连后重试');}

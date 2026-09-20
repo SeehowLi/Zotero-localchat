@@ -1,6 +1,6 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const runtime=require('./runtime.cjs')(),Host=require('./host.cjs'),App=require('./app-stream.cjs'),Sessions=require('./event-sessions.cjs'),Uploads=require('./uploads.cjs');
-const app=new App(new Host(runtime)),sessions=new Sessions(runtime,app),uploads=new Uploads(runtime),token=crypto.randomBytes(32).toString('hex');
+const host=new Host(runtime),app=new App(host),sessions=new Sessions(runtime,app),setup=new(require('./setup.cjs'))(runtime,host,app,sessions),uploads=new Uploads(runtime),token=crypto.randomBytes(32).toString('hex');
 const index=process.argv.indexOf('--port'),port=index<0?23128:Number(process.argv[index+1]);let origin,stopped=false;const appearanceClients=new Map();
 const reply=(res,status,body,type='application/json; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"});res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));};
 function authorized(req){const supplied=Buffer.from(String(req.headers['x-mirror-token']||''));return supplied.length===64&&crypto.timingSafeEqual(supplied,Buffer.from(token))&&(!req.headers.origin||req.headers.origin===origin)&&(!req.headers['sec-fetch-site']||['same-origin','none'].includes(req.headers['sec-fetch-site']));}
@@ -12,6 +12,7 @@ const server=http.createServer(async(req,res)=>{try{
   if(req.method==='GET'&&asset)return reply(res,200,fs.readFileSync(path.join(__dirname,asset)),asset.endsWith('.js')?'text/javascript; charset=utf-8':asset.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8');
   if(!authorized(req))return reply(res,403,{error:'连接凭据已更新，请在 Zotero 点击“当前论文”重新打开'});
   if(req.method==='GET'){
+    if(route==='/api/setup')return reply(res,200,await setup.status());
     if(route==='/api/appearance-stream'){
       const id=url.searchParams.get('id'),p=sessions.context(id);
       res.writeHead(200,{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store'});res.flushHeaders();
@@ -33,7 +34,9 @@ const server=http.createServer(async(req,res)=>{try{
     return reply(res,200,{ok:true});
   }
   if(route==='/api/stop'){if(sessions.busy)throw Error('聊天仍在进行');reply(res,200,{ok:true});setTimeout(shutdown,100);return;}
-  if(route==='/api/reconnect'){await sessions.exclusive(()=>app.ensure());return reply(res,200,{ok:true});}
+  if(route==='/api/setup/project')return reply(res,200,await sessions.exclusive(()=>setup.select(b.project)));
+  if(route==='/api/setup/open-app')return reply(res,200,await sessions.exclusive(()=>host.openApp()));
+  if(route==='/api/reconnect'){const state=await sessions.exclusive(async()=>{const state=await setup.prepare();await app.ensure();return state;});return reply(res,200,{ok:true,project:state.project});}
   if(route==='/api/upload/remove'){uploads.remove(b.id,b.file);return reply(res,200,{ok:true});}
   if(route==='/api/session/open')return reply(res,200,await sessions.open(b.id));
   if(route==='/api/session/model')return reply(res,200,await sessions.model(b.id));
