@@ -90,6 +90,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\Enable-App-Bridge
 
 Zotero 自动管理的是本地中转进程，不会强行退出或重启 ChatGPT。App 通过专用快捷方式启动且连接端口可用后会自动连接；仅有普通 App 进程仍不足以开放本地连接。App 中途退出后，侧栏会保留已显示的内容，重新打开 App 后点击“重连”；不会重复发送消息。
 
+### 可选：沿用开始菜单中的 ChatGPT 图标
+
+本节为源码版新增功能，0.4.11 发布包尚未包含此安装脚本；请在源码目录运行。
+
+如果希望继续使用开始菜单中的 **ChatGPT** 图标，可先运行可选脚本：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\Install-StartMenu-Entry.ps1"
+```
+
+它会在 `%USERPROFILE%\.zotero-localchat\app-launcher` 创建同名、官方图标的 `ChatGPT.lnk`，复用已安装的 App 和登录状态。右键这个快捷方式选择“固定到开始”，再取消原商店入口的固定；不要卸载 App。新入口每次启动会查找该应用包的当前安装路径，自动附带本地连接参数。可以用同一脚本的 `-VerifyOnly` 参数校验入口，不会启动或退出 App。
+
+如果 App 已经按旧方式运行，首次更换入口后需要完全退出一次，再点击新的开始菜单固定图标。该入口不会强制关闭 App，也不会替换 App 安装文件。未更换的商店入口、其他任务栏图标或 Windows 自启动入口不自动继承参数。
+
 ### 4. 登记本地服务（只需运行一次）
 
 在解压目录中双击 **`Start-LocalChat.cmd`**。

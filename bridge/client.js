@@ -172,7 +172,8 @@ function commitPower(delay=0){if(busy||!ready||!power)return;previewPower=Math.r
 function showSetup(state){
   $('setup').hidden=state.ready;for(const e of [$('paper'),$('chatLayout'),$('composer'),document.querySelector('footer')])e.hidden=!state.ready;
   if(state.ready){$('new').title='在 '+state.project+' 中开始空白聊天，不上传论文';return;}
-  $('setupStatus').textContent=!state.appOpen?'本机 App 尚未打开。':!state.debugReady?'App 已打开，但本地连接尚未启用。请完全退出 App，再用专用快捷方式打开。':'已连接本机 App，请确认 ChatGPT 聊天项目。';
+  $('setupStatus').textContent=!state.appOpen?'本机 App 尚未打开。':!state.debugReady?'App 已打开，但本地连接尚未启用。请完全退出 App，再从'+(state.launchLabel||'ChatGPT - Local Chat 快捷方式')+'打开。':'已连接本机 App，请确认 ChatGPT 聊天项目。';
+  $('setupHint').textContent='仅检查连接，不上传论文。请从'+(state.launchLabel||'ChatGPT - Local Chat 快捷方式')+'启动同一个 App。';
   if(!$('setupProject').value)$('setupProject').value=state.project;
   $('setupProjects').replaceChildren(...[...new Set(state.projects)].map(name=>{const option=document.createElement('option');option.value=name;return option;}));
   $('setupUse').disabled=!state.debugReady;
