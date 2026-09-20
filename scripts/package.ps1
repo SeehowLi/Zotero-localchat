@@ -4,7 +4,7 @@ $root=Split-Path $PSScriptRoot
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $dist=Join-Path $root 'dist'
 [IO.Directory]::CreateDirectory($dist) | Out-Null
-$xpi=Join-Path $dist 'Zotero-localchat-0.4.4.xpi'
+$xpi=Join-Path $dist 'Zotero-localchat-0.4.10.xpi'
 if(Test-Path -LiteralPath $xpi){Remove-Item -LiteralPath $xpi}
 [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $root 'addon'),$xpi)
 $addonArchive=[IO.Compression.ZipFile]::Open($xpi,'Update')
@@ -15,7 +15,7 @@ try {
     if(-not $addonArchive.GetEntry($entry)){$directoryEntry=$addonArchive.CreateEntry($entry);$directoryEntry.ExternalAttributes=16}
   }
 } finally {$addonArchive.Dispose()}
-$zip=Join-Path $dist 'Zotero-localchat-0.4.4-windows.zip'
+$zip=Join-Path $dist 'Zotero-localchat-0.4.10-windows.zip'
 if(Test-Path -LiteralPath $zip){Remove-Item -LiteralPath $zip}
 $archive=[IO.Compression.ZipFile]::Open($zip,'Create')
 try {
@@ -25,7 +25,7 @@ try {
       [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$file.FullName,$relative) | Out-Null
     }
   }
-  foreach($name in @('README.md','LICENSE','Start-LocalChat.cmd','Stop-LocalChat.cmd')){[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,(Join-Path $root $name),$name) | Out-Null}
-  [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$xpi,'Zotero-localchat-0.4.4.xpi') | Out-Null
+  foreach($name in @('README.md','CHANGELOG.md','CONTRIBUTORS.md','LICENSE','Start-LocalChat.cmd','Stop-LocalChat.cmd')){[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,(Join-Path $root $name),$name) | Out-Null}
+  [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$xpi,'Zotero-localchat-0.4.10.xpi') | Out-Null
 } finally {$archive.Dispose()}
 Write-Host $zip

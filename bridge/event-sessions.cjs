@@ -1,4 +1,4 @@
-const fs=require('node:fs'),path=require('node:path'),Sessions=require('./sessions.cjs');
+const fs=require('node:fs'),path=require('node:path'),Sessions=require('./sessions.cjs'),Rich=require('./rich.js');
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
 const cloudID=s=>/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(s||'');
 class EventSessions extends Sessions {
@@ -26,19 +26,19 @@ class EventSessions extends Sessions {
   transcript(id){const p=this.context(id),b=this.bindings[p.key];if(!b?.threadId)return{turns:[],unbound:true};const s=this.history.get(b.threadId);return s?{turns:s.turns,generating:s.sending}:{turns:[],mismatch:true};}
   async send(id,text,notify=()=>{},files=[]){return this.exclusive(async()=>{
     if(typeof text!=='string'||!text.trim()||text.length>12000)throw Error('请输入 1–12000 字的问题');
-    const p=await this.prepare(id,false),before=await this.stream.read(),first=!(this.bindings[p.key]?.threadId||this.bindings[p.key]?.localId);
+    const started=Date.now(),p=await this.prepare(id,false),before=await this.stream.read(),first=!(this.bindings[p.key]?.threadId||this.bindings[p.key]?.localId);
     const prompt=first&&p.mode==='paper'?'论文：'+p.title+'\n\n'+text:text;
     if(before.sending||before.draft&&norm(before.draft)!==norm(prompt))throw Error('App 中有其他草稿或正在生成的回答');
     let b=this.bindings[p.key]||{};const needsPDF=p.mode==='paper'&&!b.uploaded;
     if(needsPDF){const stat=fs.statSync(p.pdfPath);if(!stat.isFile()||stat.size>512*1024*1024)throw Error('PDF 不可用或超过 512 MB');}
-    const started=Date.now(),oldUsers=before.turns.filter(t=>t.role==='user'),beforeUserId=oldUsers.at(-1)?.id;
+    const metrics={prepareMs:Date.now()-started},oldUsers=before.turns.filter(t=>t.role==='user'),beforeUserId=oldUsers.at(-1)?.id;
     let submitted=false,settle=()=>{};
     try{
-      await this.stream.draft(prompt);
+      await this.stream.draft(prompt);metrics.draftReadyMs=Date.now()-started;
       if(needsPDF){notify({type:'phase',text:'正在上传本篇 PDF，上传完成后提交…'});await this.stream.attach(p.pdfPath);}
       for(const file of files){notify({type:'phase',text:'正在附加文件…'});await this.stream.attach(file);}
       b=this.bindings[p.key]={...b,phase:'uncertain',pendingPrompt:prompt};this.save();
-      let listener,closed,timer,seenGenerating=false,attachedId=b.threadId||b.localId;
+      let listener,closed,timer,seenGenerating=false,firstSnapshot=true;const changes=Rich.differ();let attachedId=b.threadId||b.localId;
       const completion=new Promise((resolve,reject)=>{
         settle=(e,s)=>{clearTimeout(timer);this.stream.off('snapshot',listener);this.stream.off('disconnected',closed);e?reject(e):resolve(s);};
         listener=s=>{
@@ -49,19 +49,21 @@ class EventSessions extends Sessions {
           if(!last||(last.id?last.id===beforeUserId:users.length<=oldUsers.length)||norm(last.text)!==norm(prompt))return;
           if(!attachedId){if(!cloudID(s.threadId)&&!/^local-chatgpt:/.test(s.threadId))return;attachedId=s.threadId;if(cloudID(attachedId))b.threadId=attachedId;else b.localId=attachedId;b.title=s.title;b.uploaded=p.mode==='paper'&&(b.uploaded||needsPDF);this.save();}
           const lastUser=s.turns.map(t=>t.role).lastIndexOf('user'),hasAnswer=s.turns.slice(lastUser+1).some(t=>t.role==='assistant'&&t.text.trim());
-          notify({type:'snapshot',turns:this.history.get(s.threadId)?.turns||s.turns,generating:s.sending||!hasAnswer,elapsedMs:Date.now()-started,transferMs:s.publishedAt?Date.now()-s.publishedAt:undefined});
+          const turns=this.history.get(s.threadId)?.turns||s.turns,delta=changes(turns);
+          if(hasAnswer&&metrics.firstContentMs===undefined)metrics.firstContentMs=Date.now()-started;
+          notify({type:firstSnapshot?'snapshot':'patch',...(firstSnapshot?{turns}:delta),generating:s.sending||!hasAnswer,elapsedMs:Date.now()-started,captureMs:s.captureMs,transferMs:s.publishedAt?Date.now()-s.publishedAt:undefined,publishedAt:s.publishedAt});firstSnapshot=false;
           if(hasAnswer&&seenGenerating&&!s.sending)settle(null,s);
         };
         closed=()=>settle(Error('App 中转连接断开，未重复发送'));timer=setTimeout(()=>settle(Error('回答等待超时，请检查原聊天；未重复发送')),360000);
         this.stream.on('snapshot',listener);this.stream.on('disconnected',closed);
       });completion.catch(()=>{});
       submitted=true;await this.stream.submit(prompt);this.prepared=null;
-      notify({type:'accepted',background:true,acceptedMs:Date.now()-started});b.phase='generating';this.save();
+      notify({type:'accepted',background:true,acceptedMs:Date.now()-started,metrics:{...metrics}});b.phase='generating';this.save();
       const final=await completion;delete b.pendingPrompt;b.phase='ready';b.title=final.title;delete b.draftId;this.save();
       let warning;
       if(!b.threadId){try{const identified=await this.stream.waitFor(s=>cloudID(s?.threadId)&&s.localThreadId===b.localId,10000);b.threadId=identified.threadId;this.history.set(b.threadId,identified);this.save();}catch(e){warning='回答已完成，云端会话标识暂未确认：'+e.message;}}
       if(first&&p.mode==='paper'){try{await this.stream.rename(p.title.slice(0,160));b.title=p.title.slice(0,160);this.save();}catch(e){warning='回答已完成并保存会话；自动命名未确认：'+e.message;}}
-      return{...this.info(id),sent:true,background:true,transport:'app-dom-events',elapsedMs:Date.now()-started,warning};
+      return{...this.info(id),sent:true,background:true,transport:'app-dom-events',elapsedMs:Date.now()-started,metrics,warning};
     }catch(e){settle(e);if(submitted){b.phase='uncertain';this.save();}throw e;}
   });}
 }

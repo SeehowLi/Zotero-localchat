@@ -1,9 +1,14 @@
 {
   "name": "zotero-localchat",
-  "version": "0.4.4",
+  "version": "0.4.10",
   "private": true,
   "description": "Zotero sidebar for an existing local ChatGPT desktop session",
   "license": "MIT",
-  "engines": {"node": ">=22"},
-  "scripts": {"test": "node --test tests/*.test.cjs", "start": "node scripts/start.cjs"}
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "start": "node scripts/start.cjs"
+  }
 }

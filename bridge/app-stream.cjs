@@ -1,4 +1,4 @@
-const fs=require('node:fs'),path=require('node:path'),{EventEmitter}=require('node:events'),CDP=require('./cdp.cjs');
+const fs=require('node:fs'),path=require('node:path'),{EventEmitter}=require('node:events'),CDP=require('./cdp.cjs'),Rich=require('./rich.js');
 class AppStream extends EventEmitter {
   constructor(host){super();this.host=host;this.cdp=new CDP();this.state=null;this.generation=0;this.aliases=new Map();}
   async connect(target){
@@ -9,9 +9,9 @@ class AppStream extends EventEmitter {
   }
   async ensure(allowCreate=true){if(this.cdp.ws?.readyState===1)return;if(!this.host)throw Error("App 未连接");if(!this.connecting)this.connecting=(async()=>{this.cdp.removeAllListeners();this.cdp=new CDP();await this.connect(await this.host.target(allowCreate));for(let i=0;i<60;i++){if(await this.cdp.evaluate('!!document.querySelector("[data-app-action-sidebar-project-label]")'))return;await new Promise(r=>setTimeout(r,500));}throw Error("App 仍在加载，请稍后点击重连");})().finally(()=>{this.connecting=null;});return this.connecting;}
   async observe(){
-    this.cdp.on('Runtime.bindingCalled',e=>{if(e.name!=='__paperChatChanged')return;try{const s=this.identify(JSON.parse(e.payload));this.state=s;this.emit('snapshot',s);}catch{}});
+    this.cdp.on('Runtime.bindingCalled',e=>{if(e.name!=='__paperChatChanged')return;try{const event=JSON.parse(e.payload),s=this.identify({...event,turns:event.type==='patch'?Rich.apply(this.state?.turns||[],event):event.turns});this.state=s;this.emit('snapshot',s);}catch{}});
     this.cdp.on('disconnected',()=>{this.state=null;this.emit('disconnected');});
-    const script=fs.readFileSync(path.join(__dirname,'app-observer.js'),'utf8');
+    const script=fs.readFileSync(path.join(__dirname,'rich.js'),'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'app-observer.js'),'utf8');
     await this.cdp.call('Runtime.enable');await this.cdp.call('Page.enable');
     await this.cdp.call('Runtime.addBinding',{name:'__paperChatChanged'});
     await this.cdp.evaluate('globalThis.__paperChatObserver?.stop()');

@@ -1,0 +1,4 @@
+The ChatGPT icon belongs to OpenAI and is not covered by this project's MIT license.
+Source: unmodified embedded 16px, 20px and 256px PNGs from the official Windows ChatGPT App, chatgpt-app-light.ico and chatgpt-app-dark.ico (26.915.4065.0).
+Used to identify the connected ChatGPT service. Zotero-localchat is an independent community plugin and is not endorsed by OpenAI.
+Brand information: https://openai.com/brand/
