@@ -103,9 +103,10 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   await wait(200);assert.equal(configCalls.length,0);
   await app.cdp.call('Input.dispatchMouseEvent',{type:'mouseReleased',x:track.x+track.width*.6,y:track.y,button:'left',clickCount:1});
   await until(async()=>uiStrength===Math.round(fractional)&&await app.cdp.evaluate('!document.getElementById("send").disabled'));assert.equal(configCalls.length,1);
+  const painted=()=>until(()=>app.cdp.evaluate('renderFrame===0&&questionScrollFrame===0'));
   // Streaming updates retain old DOM/text selections and do not pull a reader back to the bottom.
-  await app.cdp.evaluate('(()=>{turns=Array.from({length:80},(_,i)=>({id:"history-"+i,role:i%2?"assistant":"user",text:"历史消息 "+i+String.fromCharCode(10)+"保留阅读位置。".repeat(15)}));render();})()');await wait(100);
-  await app.cdp.evaluate('(()=>{const a=document.getElementById("messages");a.scrollTop=50;a.dispatchEvent(new Event("scroll"));window.oldMessage=a.firstChild;window.oldText=a.firstChild.firstChild.firstChild;const r=document.createRange();r.setStart(window.oldText,0);r.setEnd(window.oldText,4);getSelection().removeAllRanges();getSelection().addRange(r);window.oldSelection=getSelection().toString();window.paintCount=0;const original=paint;paint=()=>{window.paintCount++;original();};for(let i=0;i<100;i++){turns[79]={...turns[79],text:turns[79].text+"增量"};render();}})()');await wait(100);
+  await app.cdp.evaluate('(()=>{turns=Array.from({length:80},(_,i)=>({id:"history-"+i,role:i%2?"assistant":"user",text:"历史消息 "+i+String.fromCharCode(10)+"保留阅读位置。".repeat(15)}));render();})()');await painted();
+  await app.cdp.evaluate('(()=>{const a=document.getElementById("messages");a.scrollTop=50;a.dispatchEvent(new Event("scroll"));window.oldMessage=a.firstChild;window.oldText=a.firstChild.firstChild.firstChild;const r=document.createRange();r.setStart(window.oldText,0);r.setEnd(window.oldText,4);getSelection().removeAllRanges();getSelection().addRange(r);window.oldSelection=getSelection().toString();window.paintCount=0;const original=paint;paint=()=>{window.paintCount++;original();};for(let i=0;i<100;i++){turns[79]={...turns[79],text:turns[79].text+"增量"};render();}})()');await painted();
   assert.equal(await app.cdp.evaluate('window.paintCount'),1,'100 same-frame updates paint once');
   assert.equal(await app.cdp.evaluate('document.getElementById("messages").firstChild===window.oldMessage&&window.oldText===window.oldMessage.firstChild.firstChild&&getSelection().toString()===window.oldSelection'),true);
   assert.equal(await app.cdp.evaluate('Math.abs(document.getElementById("messages").scrollTop-50)<2'),true);
@@ -113,7 +114,7 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   await app.cdp.evaluate('document.getElementById("latest").click()');assert.equal(await app.cdp.evaluate('document.getElementById("latest").hidden'),true);
   // Render a realistic answer and reject hostile content at the renderer boundary.
   await app.cdp.evaluate('window.fixtureRich='+JSON.stringify(collected.rich));
-  await app.cdp.evaluate('turns=[{id:"rich-ui",role:"assistant",text:"Rich reply",rich:window.fixtureRich}];render()');await wait(40);
+  await app.cdp.evaluate('turns=[{id:"rich-ui",role:"assistant",text:"Rich reply",rich:window.fixtureRich}];render()');await painted();
   assert.equal(await app.cdp.evaluate('document.querySelectorAll("#messages h2,#messages strong,#messages ol,#messages table,#messages math").length'),5);
   assert.equal(await app.cdp.evaluate('document.querySelector("#messages math").namespaceURI'),'http://www.w3.org/1998/Math/MathML');
   assert.equal(await app.cdp.evaluate('document.querySelector("#messages ol").getAttribute("start")'),'3');
@@ -121,33 +122,33 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   assert.equal(await app.cdp.evaluate('!!document.querySelector("#unsafeFixture script,#unsafeFixture img,#unsafeFixture [onclick],#unsafeFixture [style],#unsafeFixture [href]")'),false);
   await app.cdp.evaluate('document.getElementById("unsafeFixture").remove()');
   // Send placement is a one-time anchor. Neither generation nor manually reaching the bottom re-arms auto-scroll.
-  await app.cdp.evaluate('turns=Array.from({length:12},(_,i)=>({id:"old-"+i,role:i%2?"assistant":"user",text:"Earlier message ".repeat(25)}));turns.push({id:"this-question",role:"user",text:"Explain the formula"});anchorQuestion("this-question")');await wait(50);
+  await app.cdp.evaluate('turns=Array.from({length:12},(_,i)=>({id:"old-"+i,role:i%2?"assistant":"user",text:"Earlier message ".repeat(25)}));turns.push({id:"this-question",role:"user",text:"Explain the formula"});anchorQuestion("this-question")');await painted();
   const pinned=await app.cdp.evaluate('document.getElementById("messages").scrollTop');assert.ok(pinned>0);
   assert.equal(await app.cdp.evaluate('Math.abs(messageNodes.get("this-question").getBoundingClientRect().top-document.getElementById("messages").getBoundingClientRect().top-10)<2'),true);
-  for(let i=1;i<=8;i++){await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:'+JSON.stringify('New streamed paragraph. '.repeat(i*35))+',rich:[["p",{},['+JSON.stringify('New streamed paragraph. '.repeat(i*35))+']]]}]})');await wait(20);assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-pinned)<2,'generation does not scroll');}
+  for(let i=1;i<=8;i++){await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:'+JSON.stringify('New streamed paragraph. '.repeat(i*35))+',rich:[["p",{},['+JSON.stringify('New streamed paragraph. '.repeat(i*35))+']]]}]})');await painted();assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-pinned)<2,'generation does not scroll');}
   await app.cdp.evaluate('document.getElementById("messages").scrollTop+=120;document.getElementById("messages").dispatchEvent(new Event("scroll"))');
   const manual=await app.cdp.evaluate('document.getElementById("messages").scrollTop');
-  await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"More content ".repeat(1200)}]})');await wait(30);assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-manual)<2);
+  await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"More content ".repeat(1200)}]})');await painted();assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-manual)<2);
   await app.cdp.evaluate('document.getElementById("latest").click()');const bottom=await app.cdp.evaluate('document.getElementById("messages").scrollTop');
-  await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"More content ".repeat(1800)}]})');await wait(30);assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-bottom)<2,'explicit jump remains a one-time action');
+  await app.cdp.evaluate('receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"More content ".repeat(1800)}]})');await painted();assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-bottom)<2,'explicit jump remains a one-time action');
   // Question rail stays narrow; expanded summaries navigate without enabling follow-scroll.
   assert.equal(await app.cdp.evaluate('document.querySelectorAll("#questionList button").length'),7);
   const readingWidth=await app.cdp.evaluate('document.getElementById("messages").clientWidth');
   await app.cdp.evaluate('document.getElementById("questionNavToggle").click()');
   assert.equal(await app.cdp.evaluate('document.getElementById("questionNavToggle").getAttribute("aria-expanded")'),'true');
   assert.equal(await app.cdp.evaluate('document.getElementById("messages").clientWidth'),readingWidth,'opening the index does not reflow the reply');
-  await app.cdp.evaluate('document.getElementById("questionList").children[2].click()');await wait(50);
+  await app.cdp.evaluate('document.getElementById("questionList").children[2].click()');await painted();
   assert.equal(await app.cdp.evaluate('document.getElementById("questionNavToggle").getAttribute("aria-expanded")'),'false');
   assert.equal(await app.cdp.evaluate('Math.abs(messageNodes.get("old-4").getBoundingClientRect().top-document.getElementById("messages").getBoundingClientRect().top-10)<2'),true);
   assert.equal(await app.cdp.evaluate('document.getElementById("questionList").children[2].getAttribute("aria-current")'),'location');
   const navScroll=await app.cdp.evaluate('document.getElementById("messages").scrollTop');
-  await app.cdp.evaluate('window.savedQuestionLink=document.getElementById("questionList").children[2];receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"Longer answer ".repeat(2400)}]})');await wait(30);
+  await app.cdp.evaluate('window.savedQuestionLink=document.getElementById("questionList").children[2];receiveTurns({type:"patch",turns:[{id:"this-answer",role:"assistant",text:"Longer answer ".repeat(2400)}]})');await painted();
   assert.equal(await app.cdp.evaluate('document.getElementById("questionList").children[2]===window.savedQuestionLink'),true);
   assert.ok(Math.abs(await app.cdp.evaluate('document.getElementById("messages").scrollTop')-navScroll)<2);
   assert.equal(await app.cdp.evaluate('(()=>{const q=getComputedStyle(document.querySelector(".message.user"));return q.backgroundColor!==getComputedStyle(document.body).backgroundColor&&parseInt(q.fontWeight)>=500&&parseInt(q.borderLeftWidth)>=3})()'),true,'question styling is distinct from the reply');
-  await app.cdp.evaluate('turns=[{id:"duplicate-a",role:"user",text:"Same question"},{id:"reply-a",role:"assistant",text:"Answer ".repeat(100)},{id:"pending-nav",role:"user",text:"Same question"}];pendingUser="pending-nav";anchorQuestion("pending-nav")');await wait(30);
+  await app.cdp.evaluate('turns=[{id:"duplicate-a",role:"user",text:"Same question"},{id:"reply-a",role:"assistant",text:"Answer ".repeat(100)},{id:"pending-nav",role:"user",text:"Same question"}];pendingUser="pending-nav";anchorQuestion("pending-nav")');await painted();
   assert.equal(await app.cdp.evaluate('document.querySelectorAll("#questionList button").length'),2,'identical questions keep separate navigation entries');
-  await app.cdp.evaluate('receiveTurns({type:"snapshot",turns:[{id:"duplicate-a",role:"user",text:"Same question"},{id:"reply-a",role:"assistant",text:"Answer ".repeat(100)},{id:"confirmed-nav",role:"user",text:"Same question"}]})');await wait(30);
+  await app.cdp.evaluate('receiveTurns({type:"snapshot",turns:[{id:"duplicate-a",role:"user",text:"Same question"},{id:"reply-a",role:"assistant",text:"Answer ".repeat(100)},{id:"confirmed-nav",role:"user",text:"Same question"}]})');await painted();
   assert.equal(await app.cdp.evaluate('document.querySelectorAll("#questionList button").length'),2,'acknowledgment replaces the pending entry');
   assert.equal(await app.cdp.evaluate('document.getElementById("questionList").lastChild.getAttribute("aria-controls")'), 'message-confirmed-nav');
   // Explicit theme overrides and live Zotero theme changes must stay independent.
