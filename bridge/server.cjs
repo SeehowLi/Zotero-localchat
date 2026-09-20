@@ -2,6 +2,15 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),
 const runtime=require('./runtime.cjs')(),Host=require('./host.cjs'),App=require('./app-stream.cjs'),Sessions=require('./event-sessions.cjs'),Uploads=require('./uploads.cjs');
 const host=new Host(runtime),app=new App(host),sessions=new Sessions(runtime,app),setup=new(require('./setup.cjs'))(runtime,host,app,sessions),uploads=new Uploads(runtime),token=crypto.randomBytes(32).toString('hex');
 const index=process.argv.indexOf('--port'),port=index<0?23128:Number(process.argv[index+1]);let origin,stopped=false;const appearanceClients=new Map();
+const owners=new(require('./owners.cjs'))(),ownerIndex=process.argv.indexOf('--zotero-pid');if(ownerIndex>=0)owners.add(Number(process.argv[ownerIndex+1]));
+const ownerTimer=setInterval(()=>{if(owners.shouldStop(sessions.busy))shutdown();},2000);ownerTimer.unref();
+let automaticAttempted=false,autoConnection=null;
+const connectTimer=setInterval(async()=>{
+  if(!owners.managed||automaticAttempted||autoConnection||sessions.busy||stopped)return;
+  // Wait without launching the App. A failed actual connection is retried only by the user.
+  autoConnection=(async()=>{try{if(!(await require('./cdp.cjs').targets()).length)return;const state=await setup.status();if(!state.ready||sessions.busy)return;automaticAttempted=true;await sessions.exclusive(async()=>{await setup.prepare();await app.ensure();});}catch{}finally{autoConnection=null;}})();
+},3000);connectTimer.unref();
+app.on('disconnected',()=>{for(const clients of appearanceClients.values())for(const client of clients)if(!client.destroyed)client.write(JSON.stringify({type:'connection',connected:false})+'\n');});
 const reply=(res,status,body,type='application/json; charset=utf-8')=>{res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"});res.end(typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body));};
 function authorized(req){const supplied=Buffer.from(String(req.headers['x-mirror-token']||''));return supplied.length===64&&crypto.timingSafeEqual(supplied,Buffer.from(token))&&(!req.headers.origin||req.headers.origin===origin)&&(!req.headers['sec-fetch-site']||['same-origin','none'].includes(req.headers['sec-fetch-site']));}
 async function body(req){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>80000)throw Error('请求过大');chunks.push(c);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');}
@@ -20,13 +29,14 @@ const server=http.createServer(async(req,res)=>{try{
       if(p.zoteroTheme)res.write(JSON.stringify({type:'theme',theme:p.zoteroTheme})+'\n');
       res.on('close',()=>{clients.delete(res);if(!clients.size)appearanceClients.delete(id);});return;
     }
-    if(route==='/api/status')return reply(res,200,{version:'0.4.10',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
+    if(route==='/api/status')return reply(res,200,{version:'0.4.11',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
     if(route==='/api/context')return reply(res,200,sessions.info(url.searchParams.get('id')));
     if(route==='/api/transcript')return reply(res,200,sessions.transcript(url.searchParams.get('id')));
   }
   if(req.method!=='POST')return reply(res,404,{error:'Not found'});
   if(route==='/api/upload'){const id=url.searchParams.get('id');sessions.context(id);return reply(res,200,await uploads.add(id,url.searchParams.get('name'),req));}
   const b=await body(req);
+  if(route==='/api/owner'){owners.add(b.pid);return reply(res,200,{ok:true});}
   if(route==='/api/context')return reply(res,200,sessions.register(b));
   if(route==='/api/appearance'){
     const p=sessions.context(b.id);if(!['light','dark'].includes(b.theme))throw Error('Invalid theme');p.zoteroTheme=b.theme;
@@ -36,7 +46,7 @@ const server=http.createServer(async(req,res)=>{try{
   if(route==='/api/stop'){if(sessions.busy)throw Error('聊天仍在进行');reply(res,200,{ok:true});setTimeout(shutdown,100);return;}
   if(route==='/api/setup/project')return reply(res,200,await sessions.exclusive(()=>setup.select(b.project)));
   if(route==='/api/setup/open-app')return reply(res,200,await sessions.exclusive(()=>host.openApp()));
-  if(route==='/api/reconnect'){const state=await sessions.exclusive(async()=>{const state=await setup.prepare();await app.ensure();return state;});return reply(res,200,{ok:true,project:state.project});}
+  if(route==='/api/reconnect'){automaticAttempted=true;if(autoConnection)await autoConnection;const state=await sessions.exclusive(async()=>{const state=await setup.prepare();await app.ensure();return state;});return reply(res,200,{ok:true,project:state.project});}
   if(route==='/api/upload/remove'){uploads.remove(b.id,b.file);return reply(res,200,{ok:true});}
   if(route==='/api/session/open')return reply(res,200,await sessions.open(b.id));
   if(route==='/api/session/model')return reply(res,200,await sessions.model(b.id));

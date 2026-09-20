@@ -2,6 +2,7 @@ const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:chil
 (async()=>{
   if(Number(process.versions.node.split('.')[0])<22)throw Error('请安装 Node.js 22 或更新版本');
   const runtime=require('../bridge/runtime.cjs')(),file=path.join(runtime,'endpoint.json');let endpoint;
+  if(!process.argv.includes('--stop'))fs.writeFileSync(path.join(runtime,'launcher.json'),JSON.stringify({node:process.execPath,server:path.join(__dirname,'../bridge/server.cjs')}),'utf8');
   try{endpoint=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}
   if(endpoint){const u=new URL(endpoint.url);if(u.protocol!=='http:'||u.hostname!=='127.0.0.1'||!/^#[a-f0-9]{64}$/.test(u.hash))throw Error('本地连接地址无效');const headers={'X-Mirror-Token':u.hash.slice(1),'Content-Type':'application/json'};let r;try{r=await fetch(u.origin+'/api/status',{headers,signal:AbortSignal.timeout(1500)});}catch(e){if(e.cause?.code!=='ECONNREFUSED')throw e;}if(r){if(!r.ok)throw Error('已有服务状态未确认');if(process.argv.includes('--stop')){const stopped=await fetch(u.origin+'/api/stop',{method:'POST',headers,body:'{}'});if(!stopped.ok)throw Error((await stopped.json()).error);console.log('Local Chat 已停止');return;}console.log('Local Chat 已运行，在 Zotero 点击“论文对话”即可。');return;}}
   if(process.argv.includes('--stop')){console.log('Local Chat 未运行');return;}

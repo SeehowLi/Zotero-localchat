@@ -2,7 +2,7 @@
 
 把已登录的 ChatGPT Windows App 接入 Zotero：一边阅读论文，一边在独立侧栏提问；每篇论文在你选择的 ChatGPT 聊天项目中沿用自己的对话。首次使用推荐 `zotero-paper`，也支持自定义名称和已有的 `Paper`。
 
-**当前发布：0.4.10，Windows 预览版。** [下载发布包](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.10) · [更新记录](CHANGELOG.md) · [验证记录](docs/VALIDATION.md) · [贡献者](CONTRIBUTORS.md)
+**当前发布：0.4.11，Windows 预览版。** [下载发布包](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.11) · [更新记录](CHANGELOG.md) · [验证记录](docs/VALIDATION.md) · [贡献者](CONTRIBUTORS.md)
 
 这是独立实验项目，与 OpenAI 和 Zotero 无隶属关系。插件依赖桌面 App 的页面结构，App 更新后可能需要调整适配器。
 
@@ -23,10 +23,10 @@
 
 ### 1. 下载并解压完整包
 
-进入 [0.4.10 发布页面](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.10)，在 **Assets** 中下载：
+进入 [0.4.11 发布页面](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.11)，在 **Assets** 中下载：
 
-- **`Zotero-localchat-0.4.10-windows.zip`：首次安装和升级都推荐使用这个完整包。**
-- `Zotero-localchat-0.4.10.xpi`：只有 Zotero 插件部分，不能单独提供本地服务和聊天前端。
+- **`Zotero-localchat-0.4.11-windows.zip`：首次安装和升级都推荐使用这个完整包。**
+- `Zotero-localchat-0.4.11.xpi`：只有 Zotero 插件部分，不能单独提供本地服务和聊天前端。
 - `SHA256SUMS.txt`：可选，用于核对下载文件的 SHA-256。
 
 不要把 GitHub 自动生成的 **Source code (zip)** 当作 Windows 安装包；源码需要自行构建辅助程序。
@@ -36,7 +36,7 @@
 解压后的目录应包含：
 
 ```text
-Zotero-localchat-0.4.10.xpi
+Zotero-localchat-0.4.11.xpi
 Start-LocalChat.cmd
 Stop-LocalChat.cmd
 scripts\
@@ -88,7 +88,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\Enable-App-Bridge
 
 专用快捷方式会开启 `127.0.0.1:23129` 本地连接端口。第一次设置完成后，日常也要通过这个快捷方式启动 App。通常无需管理员权限；上述执行策略只用于这次脚本运行，不要求修改全局策略。
 
-### 4. 启动本地服务
+Zotero 自动管理的是本地中转进程，不会强行退出或重启 ChatGPT。App 通过专用快捷方式启动且连接端口可用后会自动连接；仅有普通 App 进程仍不足以开放本地连接。App 中途退出后，侧栏会保留已显示的内容，重新打开 App 后点击“重连”；不会重复发送消息。
+
+### 4. 登记本地服务（只需运行一次）
 
 在解压目录中双击 **`Start-LocalChat.cmd`**。
 
@@ -101,7 +103,9 @@ node .\scripts\start.cjs
 
 提示“Local Chat 已启动”或“Local Chat 已运行”即表示本地服务可用。服务使用 `127.0.0.1:23128`；不需要打开浏览器。
 
-电脑重启后需要重新启动服务。当前版本不会自动注册开机启动。
+这一步会登记本机 Node.js 和完整包的位置。以后打开 Zotero，插件会自动启动本地服务；如果服务中途退出，点击“论文对话”或“重新连接”也会自动恢复。最后一个已连接的 Zotero 进程退出后，服务会退出。无需再手动运行启动脚本，也不会注册 Windows 开机启动。
+
+请保留完整包目录；移动目录或升级完整包后，先运行新目录中的 Start-LocalChat.cmd 一次更新位置。只有 XPI、没有登记完整包时，侧栏会给出首次安装提示。
 
 ### 5. 在 Zotero 安装 XPI
 
@@ -109,7 +113,7 @@ node .\scripts\start.cjs
 2. 进入 **工具 → 插件**（英文界面为 **Tools → Plugins**）。
 3. 点击插件管理器右上角的齿轮。
 4. 选择 **从文件安装插件 / Install Plugin From File…**。
-5. 选择完整包中的 **`Zotero-localchat-0.4.10.xpi`**，确认安装。
+5. 选择完整包中的 **`Zotero-localchat-0.4.11.xpi`**，确认安装。
 6. 检查 **Zotero-localchat** 出现在已启用列表中。
 7. 打开一篇 PDF，点击阅读器右侧竖栏中的 **ChatGPT 图标**。
 
@@ -134,7 +138,7 @@ node .\scripts\start.cjs
 
 识别基于 App 当前侧栏的项目名称，不能用 Codex 工作项目代替 ChatGPT 聊天项目。同名项目不唯一、项目尚未显示或 App 尚未就绪时，不会猜测选择；请先在 App 中整理或展开项目后重试。
 
-检查与选择项目不会发送消息或上传 PDF。选择保存在 `%LOCALAPPDATA%\ZoteroLocalChat\settings.json`；以后正常打开直接进入聊天。已有 `Paper` 论文关联的用户会自动继承原项目，无需重新设置或上传。已有对话关联时，插件会阻止改用另一个项目，以免原论文错误地对应到新项目。
+检查与选择项目不会发送消息或上传 PDF。选择保存在 `%USERPROFILE%\.zotero-localchat\settings.json`；以后正常打开直接进入聊天。已有 `Paper` 论文关联的用户会自动继承原项目，无需重新设置或上传。已有对话关联时，插件会阻止改用另一个项目，以免原论文错误地对应到新项目。
 
 需要重新查看选择时，点击右上角 **◐ → 聊天项目…**。如果还没有建立论文或空白对话关联，可以改选项目；否则继续使用原项目。
 
@@ -211,18 +215,20 @@ App 和服务已经运行时，不需要每次提问都重复启动。服务重�
 - 拖动 Zotero 的侧栏分隔条改变宽度，内容会重新排版。
 - 点击上方 **论文信息**，或右侧原生信息/笔记图标，返回 Zotero 原生面板。Local Chat 与论文信息不共享滚动区域。
 
-## 已有用户如何升级到 0.4.10
+## 已有用户如何升级到 0.4.11
 
 **请同时更新完整 Windows 包和 XPI。** 自动更新 XPI 不能替换旧目录里的本地前端文件。
 
 1. 等当前回答完成，保留好尚未提交的内容。
 2. 在旧目录双击 **Stop-LocalChat.cmd**。如果提示聊天仍在进行，等待完成后再停止。
-3. 下载并解压新的 **Zotero-localchat-0.4.10-windows.zip** 到固定目录。可以使用新的版本目录，便于保留旧版作为回退。
-4. 在 Zotero 插件管理器中从文件安装新的 **Zotero-localchat-0.4.10.xpi**。
-5. 在**新目录**运行 **Start-LocalChat.cmd**，避免旧目录服务继续占用端口。
+3. 下载并解压新的 **Zotero-localchat-0.4.11-windows.zip** 到固定目录。可以使用新的版本目录，便于保留旧版作为回退。
+4. 在**新目录**运行 **Start-LocalChat.cmd**，登记新版位置并启动服务，避免旧目录服务继续占用端口。
+5. 在 Zotero 插件管理器中从文件安装新的 **Zotero-localchat-0.4.11.xpi**，让插件接管新版服务。
 6. 在 Zotero 点击 **论文对话**或右侧 ChatGPT 图标，重新加载聊天页。
 
-不要删除 `%LOCALAPPDATA%\ZoteroLocalChat`，那里保存了论文与对话的关联。插件保留原有 ID，升级会原位替换；通常不需要重新上传已关联论文或重建 `Paper`。
+不要删除 `%USERPROFILE%\.zotero-localchat`，那里保存了论文与对话的关联。插件保留原有 ID，升级会原位替换；通常不需要重新上传已关联论文或重建 `Paper`。
+
+0.4.11 起使用这个共享用户目录，避开 Windows 商店应用对 AppData 的文件隔离。首次运行新包会从旧 `%LOCALAPPDATA%\ZoteroLocalChat` 迁移可读取的论文关联和项目设置，已有新配置不会被覆盖。旧目录暂时保留，确认关联正常前不要删除。
 
 App 自身更新后，如果专用快捷方式失效，重新执行新包中的 `Enable-App-Bridge.ps1` 生成快捷方式，再完全退出 App 并通过新快捷方式打开。
 
@@ -265,7 +271,7 @@ Zotero 侧栏 ── 127.0.0.1:23128 ── 本机 Node 中转
 
 - 服务仅监听回环地址，并验证随机连接令牌、Host 和 Origin。令牌不写入服务日志。
 - App 的本地调试端口可以控制已登录页面，仅应在可信本机使用，不要暴露到局域网或互联网。
-- `%LOCALAPPDATA%\ZoteroLocalChat` 保存项目名称、论文关联、后台窗口标识和临时附件；输入草稿、待确认消息备份、字号与主题保存在本机侧栏存储。
+- `%USERPROFILE%\.zotero-localchat` 保存项目名称、服务启动位置、论文关联、后台窗口标识和临时附件；输入草稿、待确认消息备份、字号与主题保存在本机侧栏存储。
 - 后续附件仅在点击发送后交给 App；已发送附件的本机暂存副本会删除，异常遗留副本在后续启动时按 24 小时期限制清理。
 - 发布包和仓库不包含真实论文、聊天记录、账号或本机连接令牌。
 

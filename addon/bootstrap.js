@@ -3,12 +3,35 @@ function install(){}
 function uninstall(){}
 async function startup({rootURI}){
   await Zotero.initializationPromise;Mirror.root=rootURI;Zotero.PaperChatMirror=Mirror;
-  Mirror.endpoint=async()=>{
-    const folder=Services.dirsvc.get('LocalAppData',Components.interfaces.nsIFile).path;
-    const info=await IOUtils.readJSON(PathUtils.join(folder,'ZoteroLocalChat','endpoint.json'));
-    const url=new URL(info.url);
-    if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!/^#[a-f0-9]{64}$/.test(url.hash)||url.username||url.password)throw Error('本机聊天地址无效。');return url;
+  Mirror.service=async()=>{
+    const folder=Services.dirsvc.get('Home',Components.interfaces.nsIFile).path;
+    const runtime=PathUtils.join(folder,'.zotero-localchat'),file=PathUtils.join(runtime,'endpoint.json'),win=Zotero.getMainWindow();
+    const probe=async()=>{
+      if(!await IOUtils.exists(file))return null;
+      const info=await IOUtils.readJSON(file),url=new URL(info.url);
+      if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||!/^#[a-f0-9]{64}$/.test(url.hash)||url.username||url.password)throw Error('本机聊天地址无效。');
+      let response;try{response=await win.fetch(url.origin+'/api/status',{headers:{'X-Mirror-Token':url.hash.slice(1)},signal:win.AbortSignal.timeout(1800)});}catch{return null;}
+      if(!response.ok)throw Error('本机服务凭据未确认，请重新运行完整包中的 Start-LocalChat.cmd。');
+      return url;
+    };
+    let url=await probe();
+    if(!url){
+      const config=PathUtils.join(runtime,'launcher.json');
+      if(!await IOUtils.exists(config))throw Error('首次安装请运行完整包中的 Start-LocalChat.cmd 一次；之后将随 Zotero 自动启动。');
+      const launcher=await IOUtils.readJSON(config);
+      if(typeof launcher.node!=='string'||typeof launcher.server!=='string'||!PathUtils.isAbsolute(launcher.node)||!PathUtils.isAbsolute(launcher.server)||!/[\\/]node\.exe$/i.test(launcher.node)||!/[\\/]bridge[\\/]server\.cjs$/i.test(launcher.server)||!await IOUtils.exists(launcher.node)||!await IOUtils.exists(launcher.server))throw Error('本机服务安装位置已改变，请运行新目录中的 Start-LocalChat.cmd 更新位置。');
+      const {Subprocess}=ChromeUtils.importESModule('resource://gre/modules/Subprocess.sys.mjs');
+      const child=await Subprocess.call({command:launcher.node,arguments:[launcher.server,'--zotero-pid',String(Services.appinfo.processID)],stderr:'stdout'});
+      // Drain output without keeping a growing log or depending on a terminal window.
+      (async()=>{while(await child.stdout.readString()){}await child.wait();})().catch(Zotero.logError);
+      for(let i=0;i<40&&!url;i++){await Zotero.Promise.delay(150);url=await probe();}
+      if(!url)throw Error('本机服务启动失败，请检查安装目录与 Node.js，再点击“重新连接”。');
+    }
+    const attached=await win.fetch(url.origin+'/api/owner',{method:'POST',headers:{'X-Mirror-Token':url.hash.slice(1),'Content-Type':'application/json'},body:JSON.stringify({pid:Services.appinfo.processID}),signal:win.AbortSignal.timeout(2000)});
+    if(!attached.ok)throw Error('请先停止旧版本本机服务，再点击“重新连接”以启用 Zotero 自动管理。');
+    return url;
   };
+  Mirror.endpoint=()=>{if(!Mirror.starting)Mirror.starting=Mirror.service().finally(()=>{Mirror.starting=null;});return Mirror.starting;};
   Mirror.paper=item=>{while(item?.parentID)item=Zotero.Items.get(item.parentID);return item?.key&&!item.isNote()?{key:item.libraryID+':'+item.key,title:item.getField('title')||'Untitled paper',item}:null;};
   Mirror.open=async(p,...args)=>{while(p.opening)await p.opening.catch(()=>{});const job=Mirror.load(p,...args);p.opening=job;try{return await job;}finally{if(p.opening===job)p.opening=null;}};
   Mirror.load=async(p,mode='paper',excerpt='')=>{
@@ -37,7 +60,7 @@ async function startup({rootURI}){
       p.origin=url.origin;const href=url.origin+'/?context='+p.context+'&zoteroTheme='+Mirror.hostTheme(p.win)+url.hash;
       if(p.loadedContext!==p.context||p.loadedEndpoint!==url.href){p.browser.loadURI(Services.io.newURI(href),{triggeringPrincipal:Services.scriptSecurityManager.getSystemPrincipal()});p.loadedContext=p.context;p.loadedEndpoint=url.href;}Mirror.theme(p);
       p.status.textContent=mode==='paper'?'当前论文：'+p.paper.title+'。首次提问才上传 PDF。':'空白聊天，不附带 PDF。';
-    }catch(e){p.status.hidden=false;p.status.textContent='无法打开：'+e.message+'（本地服务需先启动）';Zotero.logError(e);throw e;}
+    }catch(e){p.status.hidden=false;p.status.textContent='连接尚未就绪：'+e.message;Zotero.logError(e);throw e;}
   };
   Mirror.hostTheme=win=>{const mode=Services.prefs?.getIntPref('browser.theme.toolbar-theme',2)??2;return mode===0?'dark':mode===1?'light':win.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';};
   Mirror.theme=p=>{if(!p.context||!p.endpoint)return;const theme=Mirror.hostTheme(p.win),url=new URL(p.endpoint);p.win.fetch(url.origin+'/api/appearance',{method:'POST',headers:{'X-Mirror-Token':url.hash.slice(1),'Content-Type':'application/json'},body:JSON.stringify({id:p.context,theme})}).catch(Zotero.logError);};
@@ -58,7 +81,7 @@ async function startup({rootURI}){
       const view=doc.createXULElement('vbox');view.className='localchat-view';view.setAttribute('flex','1');body.append(view);
       p={body,paper,status,view,win,browser:null};Mirror.panes.set(body,p);
       const button=(label,fn)=>{const b=html('button',label,row);b.type='button';b.onclick=()=>Promise.resolve(fn()).catch(Zotero.logError);return b;};
-      button('论文对话',()=>Mirror.open(p,'paper'));button('空白聊天',()=>{p.context=null;return Mirror.open(p,'blank');});button('论文信息',()=>{Mirror.hide(win);state.context.mode='item';return state.context._getItemContext?.(win.Zotero_Tabs.selectedID)?.scrollToPane('info','instant');});
+      button('论文对话',()=>Mirror.open(p,'paper'));button('空白聊天',()=>{p.context=null;return Mirror.open(p,'blank');});button('重新连接',()=>{p.loadedContext=null;return Mirror.open(p,p.mode||'paper');});button('论文信息',()=>{Mirror.hide(win);state.context.mode='item';return state.context._getItemContext?.(win.Zotero_Tabs.selectedID)?.scrollToPane('info','instant');});
     }
     for(const other of Mirror.panes.values())if(other.win===win)other.body.hidden=other!==p;
     p.readerID=reader.itemID;p.tabID=reader.tabID;
@@ -69,6 +92,7 @@ async function startup({rootURI}){
     Zotero.Reader.registerEventListener(type,handler,Mirror.id);Mirror.handlers.push([type,handler]);
   }
   for(const win of Zotero.getMainWindows())onMainWindowLoad({window:win});
+  if(Services.appinfo?.processID)Mirror.endpoint().catch(Zotero.logError);
 }
 function onMainWindowLoad({window:win}){
   if(Mirror.windows.has(win))return;
