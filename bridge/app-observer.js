@@ -13,10 +13,17 @@
     const trigger=all('button').find(e=>name(e)==='选择 ChatGPT 模型');
     return propsOf(trigger,40).find(p=>Array.isArray(p.powerSelections)&&Array.isArray(p.modelListConfig?.options)&&typeof p.onSelectPower==='function');
   }
+  function selectedPower(p){
+    if(p?.selectedPowerSelection)return p.selectedPowerSelection;
+    const candidate=p?.selectedLabelCandidate;
+    if(!candidate?.model||candidate.reasoningEffort===undefined)return null;
+    const matches=p.powerSelections.filter(o=>o.model===candidate.model&&o.reasoningEffort===candidate.reasoningEffort);
+    return matches.length===1?matches[0]:null;
+  }
   function settingsSnapshot(p){
     if(!p)return null;
     const models=p.modelListConfig.options.map(o=>({id:o.id,name:o.label,selected:o.selected===true,enabled:!o.disabled}));
-    const index=p.powerSelections.findIndex(o=>o.id===p.selectedPowerSelection?.id);
+    const index=p.powerSelections.findIndex(o=>o.id===selectedPower(p)?.id);
     if(models.filter(o=>o.selected).length!==1||p.powerSelections.length&&index<0)return null;
     const power=p.powerSelections.length?{index,max:p.powerSelections.length-1,options:p.powerSelections.map(o=>({label:o.sliderLabel}))}:null;
     return {models,power,strength:power?.options[index].label||'此模型未提供强度选项',transport:'native-controls'};
@@ -43,7 +50,7 @@
     do{
       if(thread()!==identity)throw Error('App 聊天已切换，设置未确认');
       const current=picker(),snapshot=settingsSnapshot(current);
-      if(snapshot&&(!expectedModel||snapshot.models.some(m=>m.id===expectedModel&&m.selected))&&(!expectedPower||current.selectedPowerSelection?.id===expectedPower))return {...snapshot,settingsMs:Math.round(performance.now()-started)};
+      if(snapshot&&(!expectedModel||snapshot.models.some(m=>m.id===expectedModel&&m.selected))&&(!expectedPower||selectedPower(current)?.id===expectedPower))return {...snapshot,settingsMs:Math.round(performance.now()-started)};
       await new Promise(resolve=>setTimeout(resolve,16));
     }while(performance.now()-started<1800);
     throw Error('App 尚未确认设置，请重连后检查');
@@ -63,12 +70,12 @@
   function read(){
     invalidate(observer.takeRecords());
     const main=document.querySelector('main')||document.querySelector('[role="main"]')||document;
-    const inPaper=all('button',main).some(e=>['项目：'+project,'Project: '+project].includes(name(e)))||newEditor(editor());
     const selected=all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]')
       .filter(e=>e.getAttribute('data-app-action-sidebar-thread-selected')==='true');
     const localThreadId=(document.querySelector('[data-above-composer-conversation-id]')?.getAttribute('data-above-composer-conversation-id')||(selected.length===1?selected[0].getAttribute('data-app-action-sidebar-thread-id'):null))?.replace(/^chatgpt:/,'')||null;
     const currentRow=paperRows().find(e=>e.getAttribute('aria-current')==='page'&&name(e)===document.title);
     const threadId=/^local-chatgpt:/.test(localThreadId||'')?(rowID(currentRow)||propsOf(currentRow).map(p=>p.activeServerConversationId).find(cloudID)||localThreadId):localThreadId;
+    const inPaper=all('button',main).some(e=>['项目：'+project,'Project: '+project].includes(name(e)))||newEditor(editor())||!!(cloudID(threadId)&&currentRow&&rowID(currentRow)===threadId);
     const input=editor(),draft=input?(input.value??input.innerText??'').trim():'';
     const sending=all('button',main).some(e=>visible(e)&&/^(停止|停止生成|停止响应|Stop|Stop generating)$/.test(name(e)));
     const turns=[];
@@ -104,6 +111,17 @@
   const observer=new MutationObserver(records=>{invalidate(records);if(!scheduled){scheduled=true;queueMicrotask(publish);}});
   observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-label','aria-busy','aria-checked','disabled','aria-disabled','data-app-action-sidebar-thread-selected','data-above-composer-conversation-id','class','href','colspan','rowspan','start']});
   globalThis.__paperChatObserver={read,one,name,editor,settings,
+    findTitle(title){
+      const p=projectRow();
+      if(p.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}
+      const more=all('button,[role="button"]',p.parentElement).find(e=>['展开显示','Show more'].includes(name(e)));
+      if(more){more.click();return{expanded:true};}
+      const normalize=s=>String(s).normalize('NFC').replace(/\s+/g,' ').trim();
+      const titles=new Set([normalize(title),normalize(title.slice(0,160))]);
+      const matches=paperRows().filter(e=>titles.has(normalize(name(e)))).map(e=>({id:rowID(e),title:name(e)}));
+      if(matches.some(m=>!m.id))throw Error('同名聊天的云端标识尚未就绪，请稍后重连');
+      return{matches:[...new Map(matches.map(m=>[m.id,m])).values()]};
+    },
     setProject(value){project=value;first=true;publish();},
     startChat(){const p=projectRow();if(p.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}const labels=['在 '+project+' 中开启新聊天','New chat in '+project,'Start a new chat in '+project];const found=all('button,[role="button"]',p.parentElement).filter(e=>visible(e)&&labels.includes(name(e))&&!e.disabled);if(found.length!==1)throw Error('未找到该项目的 ChatGPT 新聊天按钮；请在 App 中展开聊天项目：'+project);found[0].click();return{opened:true};},
     open(id,title){let nodes=id?all('[data-app-action-sidebar-thread-id][data-app-action-sidebar-thread-kind="chatgpt"]').filter(e=>e.getAttribute('data-app-action-sidebar-thread-id')?.replace(/^chatgpt:/,'')===id):[];if(!nodes.length){const p=projectRow();if(p?.getAttribute('data-app-action-sidebar-project-collapsed')==='true'){p.click();return{expanded:true};}nodes=id?paperRows().filter(e=>rowID(e)===id):[];if(!nodes.length&&title)nodes=paperRows().filter(e=>name(e)===title);if(!nodes.length&&p){const more=all('button,[role="button"]',p.parentElement).find(e=>name(e)==='展开显示');if(more){more.click();return{expanded:true};}}}if(nodes.length!==1)throw Error('项目中未找到唯一的已关联聊天，请在 App 中打开该聊天一次。');nodes[0].click();return{opened:true};},

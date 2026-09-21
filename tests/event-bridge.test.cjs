@@ -32,6 +32,9 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   assert.equal((await app.model('Fixture B')).models.find(m=>m.selected).name,'Fixture B');
   assert.equal(await app.cdp.evaluate('document.getElementById("menu").children.length'),0,'native control path never opens App menus');
   await assert.rejects(app.strength(undefined,99),/无效/);
+  await app.cdp.evaluate(`nativePicker.powerSelections.forEach((o,i)=>{o.model='fixture';o.reasoningEffort='effort-'+i});nativePicker.selectedLabelCandidate={model:'fixture',reasoningEffort:'effort-3'};nativePicker.fallbackPowerSelection=nativePicker.powerSelections[0];delete nativePicker.selectedPowerSelection`);
+  assert.equal((await app.models()).power.index,3,'synced chats use the actual model and effort, not the unrelated fallback default');
+  await app.cdp.evaluate(`nativePicker.selectedPowerSelection=nativePicker.powerSelections[3];delete nativePicker.selectedLabelCandidate`);
   await app.cdp.evaluate('nativePicker.disabled=true');await assert.rejects(app.model('Fixture A'),/暂不可用/);
   await app.cdp.evaluate('nativePicker.disabled=false;nativePicker.onSelectPower=()=>{window.nativeChanges++}');
   const changesBefore=await app.cdp.evaluate('nativeChanges');await assert.rejects(app.strength(undefined,0),/尚未确认/);assert.equal(await app.cdp.evaluate('nativeChanges'),changesBefore+1,'unconfirmed native action is never replayed via the menu fallback');
@@ -55,7 +58,17 @@ test('real CDP: DOM events, background input, model menu, and no duplicate sends
   // Literal custom project names work without interpolating CSS selectors or regexes.
   const customProject='研究 ["A"] + B';await app.setProject(customProject);
   await app.cdp.evaluate(`(()=>{const name=${JSON.stringify(customProject)},group=document.createElement('section'),row=document.createElement('button'),start=document.createElement('button');row.setAttribute('data-app-action-sidebar-project-label',name);row.setAttribute('data-app-action-sidebar-project-collapsed','true');row.onclick=()=>row.setAttribute('data-app-action-sidebar-project-collapsed','false');start.setAttribute('aria-label','在 '+name+' 中开启新聊天');start.onclick=()=>{document.getElementById('editor').setAttribute('aria-label','在 '+name+' 中新建聊天');document.querySelector('main button').textContent='项目：'+name;document.querySelector('[data-app-action-sidebar-thread-id]').setAttribute('data-app-action-sidebar-thread-selected','true');document.querySelector('[data-app-action-sidebar-thread-id]').setAttribute('data-app-action-sidebar-thread-id','00000000-0000-4000-8000-000000000002')};group.append(row,start);document.body.append(group);})()`);
-  const fresh=await app.newChat();assert.equal(fresh.newPaper,true);assert.equal(fresh.inPaper,true);assert.equal(await app.cdp.evaluate('sentCount'),1,'custom project selection does not send');await app.setProject('Paper');assert.equal((await app.read()).inPaper,false,'a different project is not mistaken for Paper');
+  const fresh=await app.newChat();assert.equal(fresh.newPaper,true);assert.equal(fresh.inPaper,true);assert.equal(await app.cdp.evaluate('sentCount'),1,'custom project selection does not send');
+  await app.cdp.evaluate(`(()=>{const row=document.querySelector('[data-app-action-sidebar-project-label]'),group=row.parentElement;window.fixtureConversation=(id,title)=>{const e=document.createElement('div');e.setAttribute('role','button');e.setAttribute('aria-label',title);e.__reactFiber$fixture={memoizedProps:{conversation:{id}},return:null};group.append(e);return e};fixtureConversation('10000000-0000-4000-8000-000000000001','Same  paper');const more=document.createElement('button');more.textContent='展开显示';more.onclick=()=>{fixtureConversation('10000000-0000-4000-8000-000000000002','Same paper');more.remove()};group.append(more)})()`);
+  await assert.rejects(app.findByTitle('Same paper'),/多个同名/,'expand all project rows before deciding uniqueness');
+  await app.cdp.evaluate(`document.querySelector('[aria-label="Same paper"]').remove()`);
+  assert.equal((await app.findByTitle('Same paper')).id,'10000000-0000-4000-8000-000000000001');
+  assert.equal(await app.findByTitle('Unrelated paper'),null);
+  await app.cdp.evaluate(`(()=>{const e=fixtureConversation('00000000-0000-4000-8000-000000000002',document.title);e.setAttribute('aria-current','page');e.id='cloud-history-row';document.querySelector('main button').textContent='History';document.getElementById('editor').setAttribute('aria-label','给 ChatGPT 发消息')})()`);
+  assert.equal((await app.read()).inPaper,true,'older cloud chats are identified by their project-scoped selected ID without a project header');
+  await app.cdp.evaluate(`document.getElementById('cloud-history-row').__reactFiber$fixture.memoizedProps.conversation.id='00000000-0000-4000-8000-000000000003'`);
+  assert.equal((await app.read()).inPaper,false,'a mismatched selected cloud ID cannot expose unrelated history');
+  await app.setProject('Paper');assert.equal((await app.read()).inPaper,false,'a different project is not mistaken for Paper');
   await app.cdp.call('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/ui?context=fixture#test-token'});
   for(let i=0;i<100;i++){if(await app.cdp.evaluate('!!document.getElementById("send")&&!document.getElementById("send").disabled'))break;await wait(30);}
   assert.equal(await app.cdp.evaluate('document.getElementById("send").disabled'),false);assert.equal(uiSends,0,'opening does not send');

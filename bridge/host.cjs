@@ -5,11 +5,19 @@ class Host {
   constructor(runtime){this.file=path.join(runtime,'host.json');this.helper=path.join(__dirname,'../bin/LocalChatWindow.exe');this.launcher=path.join(runtime,'app-launcher','ChatGPTLauncher.exe');}
   launchLabel(){return fs.existsSync(this.launcher)?'开始菜单中的 ChatGPT':'ChatGPT - Local Chat 快捷方式';}
   async native(...args){const r=await execFile(this.helper,args,{windowsHide:true,timeout:10000,encoding:'utf8'});return JSON.parse(r.stdout);}
+  async readyWindow(targets){
+    let fallback;
+    for(const target of targets.filter(t=>new URL(t.url).pathname==='/index.html'&&!new URL(t.url).searchParams.has('initialRoute'))){
+      const c=new CDP();try{await c.connect(target.webSocketDebuggerUrl);const projects=await c.evaluate("[...document.querySelectorAll('[data-app-action-sidebar-project-label]')].map(e=>({name:e.getAttribute('data-app-action-sidebar-project-label'),id:e.getAttribute('data-app-action-sidebar-project-id')}))");
+        if(projects.length){const result={target,projects:projects.map(p=>p.name)};if(projects.some(p=>p.id?.startsWith('g-p-')))return result;fallback??=result;}
+      }catch{}finally{c.close();}
+    }
+    return fallback;
+  }
   async inspect(){
     let targets;try{targets=await CDP.targets();}catch{const r=await execFile('powershell.exe',['-NoProfile','-Command',"[bool](Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)"],{windowsHide:true,timeout:5000,encoding:'utf8'});return{appOpen:r.stdout.trim().toLowerCase()==='true',debugReady:false,projects:[]};}
-    const target=targets.find(t=>new URL(t.url).pathname==='/index.html'&&!new URL(t.url).searchParams.has('initialRoute'))||targets[0];
-    if(!target)return{appOpen:true,debugReady:false,projects:[]};
-    const c=new CDP();try{await c.connect(target.webSocketDebuggerUrl);const projects=await c.evaluate("[...document.querySelectorAll('[data-app-action-sidebar-project-label]')].map(e=>e.getAttribute('data-app-action-sidebar-project-label')).filter(Boolean)");return{appOpen:true,debugReady:true,projects};}finally{c.close();}
+    const ready=await this.readyWindow(targets);
+    return{appOpen:true,debugReady:targets.length>0,projects:ready?.projects||[]};
   }
   async openApp(){
     let targets=[];try{targets=await CDP.targets();}catch{}
@@ -24,7 +32,7 @@ class Host {
     if(target){try{const status=await this.native('status',saved.handle,String(saved.pid),saved.started);if(!status.visible)return target;}catch{} }
     if(!target){
       if(!allowCreate)throw Error("后台连接已关闭，请点击重连后再发送；未创建窗口或重复发送");
-      const main=targets.find(t=>new URL(t.url).pathname==='/index.html'&&!new URL(t.url).searchParams.has('initialRoute'));
+      const main=(await this.readyWindow(targets))?.target;
       if(!main)throw Error('请先启动已启用本地连接的 ChatGPT App');
       const control=new CDP();try{
         await control.connect(main.webSocketDebuggerUrl);
@@ -39,10 +47,20 @@ class Host {
     const control=new CDP();let title;
     try{
       await control.connect(target.webSocketDebuggerUrl);
-      for(let i=0;i<50;i++){if(await control.evaluate('!!document.querySelector("[data-app-action-sidebar-project-label]")'))break;await pause(100);}
+      let ready=false;
+      const deadline=Date.now()+45000;
+      while(Date.now()<deadline){
+        try{ready=await control.evaluate('!!document.querySelector("[data-app-action-sidebar-project-label]")');if(ready)break;}catch(error){if(control.ws?.readyState!==1)throw error;}
+        await pause(500);
+      }
+      if(!ready)throw Error('后台 App 仍在初始化，请稍后重连');
       title=await control.evaluate('document.title');const marker='LocalChat-'+crypto.randomBytes(12).toString('hex');
       await control.evaluate('document.title='+JSON.stringify(marker));await pause(250);
-      const state=await this.native('hide',marker);if(state.visible)throw Error('无法隐藏后台页面');
+      let state;
+      for(let attempt=0;attempt<6;attempt++){
+        try{state=await this.native('hide',marker);break;}catch(error){if(attempt===5||!error.message.includes('Managed App window was not uniquely identified'))throw error;await pause(500);}
+      }
+      if(state.visible)throw Error('无法隐藏后台页面');
       fs.writeFileSync(this.file,JSON.stringify({targetId:target.id,...state}),'utf8');return target;
     }finally{if(title!==undefined)await control.evaluate('document.title='+JSON.stringify(title)).catch(()=>{});control.close();}
   }

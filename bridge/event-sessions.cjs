@@ -12,8 +12,17 @@ class EventSessions extends Sessions {
     const p=this.context(id),b=this.bindings[p.key];
     if(['uncertain','sending','generating'].includes(b?.phase))throw Error('上次发送尚未确认，请检查原聊天后恢复关联。');
     if(b?.title&&!b.threadId){const s=await this.stream.open(null,b.title);if(cloudID(s.threadId)){b.threadId=s.threadId;this.save();}else if(b.localId===s.threadId)return p;}
-    if(b?.threadId){if(b.localId)this.stream.alias(b.localId,b.threadId);await this.stream.open(b.threadId,b.title);return p;}
+    if(b?.threadId){if(b.localId)this.stream.alias(b.localId,b.threadId);this.remember(await this.stream.open(b.threadId,b.title));return p;}
     if(b?.localId){await this.stream.open(b.localId,b.title);return p;}
+    if(p.mode==='paper'){
+      const match=await this.stream.findByTitle(p.title);
+      if(match){
+        const s=await this.stream.open(match.id,match.title);
+        if(!s.inPaper||s.threadId!==match.id||!cloudID(s.threadId))throw Error('历史聊天身份未确认，未建立关联');
+        this.bindings[p.key]={title:match.title,threadId:s.threadId,uploaded:true,reused:true,phase:'ready'};
+        this.remember(s);this.save();return p;
+      }
+    }
     const current=await this.stream.read();
     if(current.newPaper&&(this.prepared===p.key||b?.draftId===current.threadId)){this.prepared=p.key;return p;}
     const draft=await this.stream.newChat();this.prepared=p.key;

@@ -2,7 +2,7 @@
 
 把已登录的 ChatGPT Windows App 接入 Zotero：一边阅读论文，一边在独立侧栏提问；每篇论文在你选择的 ChatGPT 聊天项目中沿用自己的对话。首次使用推荐 `zotero-paper`，也支持自定义名称和已有的 `Paper`。
 
-**当前发布：0.4.11，Windows 预览版。** [下载发布包](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.11) · [更新记录](CHANGELOG.md) · [验证记录](docs/VALIDATION.md) · [贡献者](CONTRIBUTORS.md)
+**当前发布：0.4.12，Windows 预览版。** [下载发布包](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.12) · [更新记录](CHANGELOG.md) · [验证记录](docs/VALIDATION.md) · [贡献者](CONTRIBUTORS.md)
 
 这是独立实验项目，与 OpenAI 和 Zotero 无隶属关系。插件依赖桌面 App 的页面结构，App 更新后可能需要调整适配器。
 
@@ -23,10 +23,10 @@
 
 ### 1. 下载并解压完整包
 
-进入 [0.4.11 发布页面](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.11)，在 **Assets** 中下载：
+进入 [0.4.12 发布页面](https://github.com/SeehowLi/Zotero-localchat/releases/tag/v0.4.12)，在 **Assets** 中下载：
 
-- **`Zotero-localchat-0.4.11-windows.zip`：首次安装和升级都推荐使用这个完整包。**
-- `Zotero-localchat-0.4.11.xpi`：只有 Zotero 插件部分，不能单独提供本地服务和聊天前端。
+- **`Zotero-localchat-0.4.12-windows.zip`：首次安装和升级都推荐使用这个完整包。**
+- `Zotero-localchat-0.4.12.xpi`：只有 Zotero 插件部分，不能单独提供本地服务和聊天前端。
 - `SHA256SUMS.txt`：可选，用于核对下载文件的 SHA-256。
 
 不要把 GitHub 自动生成的 **Source code (zip)** 当作 Windows 安装包；源码需要自行构建辅助程序。
@@ -36,7 +36,7 @@
 解压后的目录应包含：
 
 ```text
-Zotero-localchat-0.4.11.xpi
+Zotero-localchat-0.4.12.xpi
 Start-LocalChat.cmd
 Stop-LocalChat.cmd
 scripts\
@@ -92,7 +92,7 @@ Zotero 自动管理的是本地中转进程，不会强行退出或重启 ChatGP
 
 ### 可选：沿用开始菜单中的 ChatGPT 图标
 
-本节为源码版新增功能，0.4.11 发布包尚未包含此安装脚本；请在源码目录运行。
+0.4.12 完整发布包已包含此安装脚本，可直接在解压目录运行。
 
 如果希望继续使用开始菜单中的 **ChatGPT** 图标，可先运行可选脚本：
 
@@ -127,7 +127,7 @@ node .\scripts\start.cjs
 2. 进入 **工具 → 插件**（英文界面为 **Tools → Plugins**）。
 3. 点击插件管理器右上角的齿轮。
 4. 选择 **从文件安装插件 / Install Plugin From File…**。
-5. 选择完整包中的 **`Zotero-localchat-0.4.11.xpi`**，确认安装。
+5. 选择完整包中的 **`Zotero-localchat-0.4.12.xpi`**，确认安装。
 6. 检查 **Zotero-localchat** 出现在已启用列表中。
 7. 打开一篇 PDF，点击阅读器右侧竖栏中的 **ChatGPT 图标**。
 
@@ -170,6 +170,12 @@ node .\scripts\start.cjs
 6. 在同一篇论文里继续追问，应沿用原对话和已上传文件。
 
 上传附件、ChatGPT 服务端排队、模型思考和生成仍然需要时间。本地增量传输不等于消除模型的首次回答等待。
+
+## 同名论文与跨设备续聊
+
+打开论文时，若本机还没有聊天关联，插件会在所选 ChatGPT 项目中查找唯一的同名聊天，恢复历史并保存云端聊天 ID；已有 ID 关联优先保留。后续提问继续写入这个云端聊天。另一台设备使用同一账号、同一项目和新版完整包，重开论文对话或点击重连后读取 App 已同步的内容。
+
+“新聊天”仍创建独立空白聊天。同名结果不唯一时不会自动关联或新建；请在 App 中区分聊天标题后重试。详见[历史恢复与跨设备升级](docs/HISTORY-SYNC.md)。
 
 ## 日常怎么使用
 
@@ -229,15 +235,15 @@ App 和服务已经运行时，不需要每次提问都重复启动。服务重�
 - 拖动 Zotero 的侧栏分隔条改变宽度，内容会重新排版。
 - 点击上方 **论文信息**，或右侧原生信息/笔记图标，返回 Zotero 原生面板。Local Chat 与论文信息不共享滚动区域。
 
-## 已有用户如何升级到 0.4.11
+## 已有用户如何升级到 0.4.12
 
 **请同时更新完整 Windows 包和 XPI。** 自动更新 XPI 不能替换旧目录里的本地前端文件。
 
 1. 等当前回答完成，保留好尚未提交的内容。
 2. 在旧目录双击 **Stop-LocalChat.cmd**。如果提示聊天仍在进行，等待完成后再停止。
-3. 下载并解压新的 **Zotero-localchat-0.4.11-windows.zip** 到固定目录。可以使用新的版本目录，便于保留旧版作为回退。
+3. 下载并解压新的 **Zotero-localchat-0.4.12-windows.zip** 到固定目录。可以使用新的版本目录，便于保留旧版作为回退。
 4. 在**新目录**运行 **Start-LocalChat.cmd**，登记新版位置并启动服务，避免旧目录服务继续占用端口。
-5. 在 Zotero 插件管理器中从文件安装新的 **Zotero-localchat-0.4.11.xpi**，让插件接管新版服务。
+5. 在 Zotero 插件管理器中从文件安装新的 **Zotero-localchat-0.4.12.xpi**，让插件接管新版服务。
 6. 在 Zotero 点击 **论文对话**或右侧 ChatGPT 图标，重新加载聊天页。
 
 不要删除 `%USERPROFILE%\.zotero-localchat`，那里保存了论文与对话的关联。插件保留原有 ID，升级会原位替换；通常不需要重新上传已关联论文或重建 `Paper`。
