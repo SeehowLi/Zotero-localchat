@@ -26,3 +26,20 @@ test('ambiguous title and failed identity checks never silently create or bind a
   await assert.rejects(sessions.open(c.id),/multiple/);assert.equal(sessions.bindings[sessions.context(c.id).key],undefined);
   stream.findByTitle=async()=>({id:ID,title:'Same'});stream.open=async()=>({...stream.state,threadId:'wrong'});await assert.rejects(sessions.open(c.id),/身份未确认/);assert.equal(sessions.bindings[sessions.context(c.id).key],undefined);
 });
+
+test('confirmed network failure unlocks reading and preserves the pending draft without replay',async t=>{
+  const {stream,sessions}=setup(t),c=sessions.register({mode:'blank'});sessions.bindings[sessions.context(c.id).key]={threadId:ID,title:'Fixture',phase:'uncertain',pendingPrompt:'hello'};
+  let sends=0;stream.submit=()=>sends++;stream.push({...stream.state,draft:'hello',responseError:'net::ERR_CONNECTION_CLOSED',turns:[{id:'u',role:'user',text:'hello'}]});
+  const result=await sessions.recover(c.id);assert.equal(result.phase,'failed');assert.equal(result.pendingDraft,'hello');assert.equal(sends,0);assert.equal((await sessions.open(c.id)).phase,'failed');
+  stream.push({...stream.state,draft:'',responseError:null,turns:[{id:'u',role:'user',text:'hello'},{id:'a',role:'assistant',text:'recovered in App'}]});assert.equal((await sessions.recover(c.id)).phase,'ready');assert.equal(sends,0);
+});
+test('an unrelated alert or active generation cannot unlock an uncertain submission',async t=>{
+  const {stream,sessions}=setup(t),c=sessions.register({mode:'blank'});sessions.bindings[sessions.context(c.id).key]={threadId:ID,title:'Fixture',phase:'uncertain',pendingPrompt:'hello'};
+  stream.push({...stream.state,responseError:'net::ERR_CONNECTION_CLOSED'});await assert.rejects(sessions.recover(c.id),/未确认/);
+  stream.push({...stream.state,draft:'hello',sending:true});await assert.rejects(sessions.recover(c.id),/未确认/);assert.equal(sessions.info(c.id).phase,'uncertain');
+});
+test('an explicit network error ends streaming promptly and never retries submission',async t=>{
+  const {stream,sessions}=setup(t),c=sessions.register({mode:'blank'});sessions.bindings[sessions.context(c.id).key]={threadId:ID,title:'Fixture',phase:'ready'};
+  let sends=0;stream.submit=async text=>{sends++;stream.push({...stream.state,sending:false,draft:text,responseError:'net::ERR_CONNECTION_CLOSED',turns:[{id:'new-u',role:'user',text}]})};
+  await assert.rejects(sessions.send(c.id,'hello'),/请求失败/);assert.equal(sessions.info(c.id).phase,'failed');assert.equal(sessions.info(c.id).pendingDraft,'hello');assert.equal(sends,1);
+});

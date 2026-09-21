@@ -29,7 +29,7 @@ const server=http.createServer(async(req,res)=>{try{
       if(p.zoteroTheme)res.write(JSON.stringify({type:'theme',theme:p.zoteroTheme})+'\n');
       res.on('close',()=>{clients.delete(res);if(!clients.size)appearanceClients.delete(id);});return;
     }
-    if(route==='/api/status')return reply(res,200,{version:'0.4.12',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
+    if(route==='/api/status')return reply(res,200,{version:'0.4.13',busy:sessions.busy,streamReady:app.cdp.ws?.readyState===1});
     if(route==='/api/context')return reply(res,200,sessions.info(url.searchParams.get('id')));
     if(route==='/api/transcript')return reply(res,200,sessions.transcript(url.searchParams.get('id')));
   }

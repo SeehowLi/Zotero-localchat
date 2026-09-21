@@ -30,7 +30,17 @@ class EventSessions extends Sessions {
   }
   async model(id){return this.exclusive(async()=>{await this.prepare(id);return this.stream.models();});}
   async config(id,choice){return this.exclusive(async()=>{await this.prepare(id);return choice.model?this.stream.model(choice.model):this.stream.strength(choice.delta,choice.index);});}
-  async recover(id){return this.exclusive(async()=>{await this.stream.ensure?.();const p=this.context(id),b=this.bindings[p.key];if(!b)throw Error('尚无会话需要恢复');const target=b.threadId||b.localId;if(target)await this.stream.open(target,b.title);const s=await this.stream.read();if(!s.inPaper||target&&s.threadId!==target||!target&&s.localThreadId!==b.draftId)throw Error('无法确认原聊天，未重复发送');const last=s.turns.map(t=>t.role).lastIndexOf('user');if(!b.pendingPrompt||norm(s.turns[last]?.text)!==norm(b.pendingPrompt)||s.sending||!s.turns.slice(last+1).some(t=>t.role==='assistant'&&t.text.trim()))throw Error('原回答尚未完成或发送状态未确认，请稍后重连；未重复发送');if(cloudID(s.threadId))b.threadId=s.threadId;else b.localId=s.threadId;b.phase='ready';b.title=s.title;b.uploaded=p.mode==='paper';delete b.pendingPrompt;this.remember(s);this.save();return this.info(id);});}
+  async recover(id){return this.exclusive(async()=>{
+    await this.stream.ensure?.();const p=this.context(id),b=this.bindings[p.key];if(!b)throw Error('尚无会话需要恢复');
+    const target=b.threadId||b.localId;if(target)await this.stream.open(target,b.title);const s=await this.stream.read();
+    if(!s.inPaper||target&&s.threadId!==target||!target&&s.localThreadId!==b.draftId)throw Error('无法确认原聊天，未重复发送');
+    const last=s.turns.map(t=>t.role).lastIndexOf('user'),matches=!!b.pendingPrompt&&norm(s.turns[last]?.text)===norm(b.pendingPrompt);
+    if(!s.sending&&s.responseError&&b.pendingPrompt&&(matches||norm(s.draft)===norm(b.pendingPrompt))){
+      b.phase='failed';b.failure=s.responseError;this.remember(s);this.save();return this.info(id);
+    }
+    if(!matches||s.sending||!s.turns.slice(last+1).some(t=>t.role==='assistant'&&t.text.trim()))throw Error('原回答尚未完成或发送状态未确认，请稍后重连；未重复发送');
+    if(cloudID(s.threadId))b.threadId=s.threadId;else b.localId=s.threadId;b.phase='ready';b.title=s.title;b.uploaded=p.mode==='paper';delete b.pendingPrompt;delete b.failure;this.remember(s);this.save();return this.info(id);
+  });}
   async bind(id,uploaded){return this.exclusive(async()=>{const p=this.context(id),s=await this.stream.read();if(!s.inPaper||!cloudID(s.threadId)||s.draft||s.sending)throw Error('请先打开已完成的 Paper 聊天');this.bindings[p.key]={title:s.title,threadId:s.threadId,uploaded:p.mode==='paper'&&!!uploaded,phase:'ready'};this.save();return this.info(id);});}
   transcript(id){const p=this.context(id),b=this.bindings[p.key];if(!b?.threadId)return{turns:[],unbound:true};const s=this.history.get(b.threadId);return s?{turns:s.turns,generating:s.sending}:{turns:[],mismatch:true};}
   async send(id,text,notify=()=>{},files=[]){return this.exclusive(async()=>{
@@ -46,7 +56,7 @@ class EventSessions extends Sessions {
       await this.stream.draft(prompt);metrics.draftReadyMs=Date.now()-started;
       if(needsPDF){notify({type:'phase',text:'正在上传本篇 PDF，上传完成后提交…'});await this.stream.attach(p.pdfPath);}
       for(const file of files){notify({type:'phase',text:'正在附加文件…'});await this.stream.attach(file);}
-      b=this.bindings[p.key]={...b,phase:'uncertain',pendingPrompt:prompt};this.save();
+      b=this.bindings[p.key]={...b,phase:'uncertain',pendingPrompt:prompt};delete b.failure;this.save();
       let listener,closed,timer,seenGenerating=false,firstSnapshot=true;const changes=Rich.differ();let attachedId=b.threadId||b.localId;
       const completion=new Promise((resolve,reject)=>{
         settle=(e,s)=>{clearTimeout(timer);this.stream.off('snapshot',listener);this.stream.off('disconnected',closed);e?reject(e):resolve(s);};
@@ -57,6 +67,7 @@ class EventSessions extends Sessions {
           const users=s.turns.filter(t=>t.role==='user'),last=users.at(-1);
           if(!last||(last.id?last.id===beforeUserId:users.length<=oldUsers.length)||norm(last.text)!==norm(prompt))return;
           if(!attachedId){if(!cloudID(s.threadId)&&!/^local-chatgpt:/.test(s.threadId))return;attachedId=s.threadId;if(cloudID(attachedId))b.threadId=attachedId;else b.localId=attachedId;b.title=s.title;b.uploaded=p.mode==='paper'&&(b.uploaded||needsPDF);this.save();}
+          if(s.responseError&&!s.sending){settle(Object.assign(Error('App 请求失败：'+s.responseError),{appFailed:true}));return;}
           const lastUser=s.turns.map(t=>t.role).lastIndexOf('user'),hasAnswer=s.turns.slice(lastUser+1).some(t=>t.role==='assistant'&&t.text.trim());
           const turns=this.history.get(s.threadId)?.turns||s.turns,delta=changes(turns);
           if(hasAnswer&&metrics.firstContentMs===undefined)metrics.firstContentMs=Date.now()-started;
@@ -73,7 +84,7 @@ class EventSessions extends Sessions {
       if(!b.threadId){try{const identified=await this.stream.waitFor(s=>cloudID(s?.threadId)&&s.localThreadId===b.localId,10000);b.threadId=identified.threadId;this.history.set(b.threadId,identified);this.save();}catch(e){warning='回答已完成，云端会话标识暂未确认：'+e.message;}}
       if(first&&p.mode==='paper'){try{await this.stream.rename(p.title.slice(0,160));b.title=p.title.slice(0,160);this.save();}catch(e){warning='回答已完成并保存会话；自动命名未确认：'+e.message;}}
       return{...this.info(id),sent:true,background:true,transport:'app-dom-events',elapsedMs:Date.now()-started,metrics,warning};
-    }catch(e){settle(e);if(submitted){b.phase='uncertain';this.save();}throw e;}
+    }catch(e){settle(e);if(submitted){b.phase=e.appFailed?'failed':'uncertain';if(e.appFailed)b.failure=e.message;this.save();}throw e;}
   });}
 }
 module.exports=EventSessions;

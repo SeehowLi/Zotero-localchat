@@ -97,7 +97,9 @@
     }));
     const attachments=all('button[aria-label^="移除 "]',main).filter(e=>e.closest('.composer-attachment-surface')).map(e=>({name:name(e).slice(3),text:e.closest('.composer-attachment-surface').innerText}));
     const send=all('button',main).find(e=>/^(发送|发送消息|Send|Send message)$/.test(name(e)));
-    return {title:document.title,threadId,localThreadId,inPaper,draft,newPaper:newEditor(input),sending,turns,attachments,canSend:!!send&&!send.disabled,canRename:!!currentRow&&propsOf(currentRow).some(p=>typeof p.getItems==='function')};
+    const failed=all('[role="alert"]',main).filter(e=>visible(e)&&/net::ERR_|network|网络|连接|connection|fetch failed/i.test(e.innerText)&&all('button',e).some(b=>/^(重试|Retry|Try again)$/i.test(name(b)))).at(-1);
+    const responseError=failed?failed.innerText.replace(/\s*(重试|Retry|Try again)\s*$/i,'').trim().slice(0,500):null;
+    return {title:document.title,threadId,localThreadId,inPaper,draft,newPaper:newEditor(input),sending,turns,attachments,responseError,canSend:!!send&&!send.disabled,canRename:!!currentRow&&propsOf(currentRow).some(p=>typeof p.getItems==='function')};
   }
   let signature='',scheduled=false,lastIdentity='',first=true;const changes=LocalChatRich.differ();
   function publish(){
